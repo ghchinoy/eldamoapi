@@ -25,11 +25,13 @@ mkdir -p eldamo
 curl -H "User-Agent: browser/1.0" http://eldamo.org/content/data-model/eldamo-data.xml -o eldamo/eldamo-data.xml
 fi
 
+mkdir -p output
+
 # Create a DTD from XML
-java -cp tools/dtdgen/dtdgen.jar DTDGenerator eldamo/eldamo-data.xml > eldamo.dtd
+java -cp tools/dtdgen/dtdgen.jar DTDGenerator eldamo/eldamo-data.xml > output/eldamo.dtd
 
 # Create an XSD from DTD
-java -jar tools/trang-20081028/trang.jar -I dtd -O xsd eldamo.dtd eldamo.xsd
+java -jar tools/trang-20081028/trang.jar -I dtd -O xsd output/eldamo.dtd output/eldamo.xsd
 
 # Create HTML from XSD
-java -jar tools/saxon/saxon9he.jar -o:eldamo-out.html eldamo.xsd tools/xs3p/xs3p.xsl title="Eldamo Schema Documentation"
+java -jar tools/saxon/saxon9he.jar -o:output/eldamo-out.html output/eldamo.xsd tools/xs3p/xs3p.xsl title="Eldamo Schema Documentation"
