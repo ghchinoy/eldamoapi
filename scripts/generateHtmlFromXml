@@ -1,0 +1,34 @@
+#!/bin/sh
+#
+# Generates HTML documenation of Eldamo XML
+#
+#
+# Usage: ./apigateway [-s] [-?] 
+#  s : download eldamo from source
+# 
+
+while getopts 's?' flag; do
+  case "${flag}" in
+  	s)
+  	  fromsource=true
+  	  ;;
+  	\?)
+      fromsource=false
+      ;;
+  	*) error "Unexpected option ${flag}" ;;
+  esac
+done
+
+if [[ ${fromsource} = true ]]; then
+# Get latest Eldamo data
+curl -H "User-Agent: browser/1.0" http://eldamo.org/content/data-model/eldamo-data.xml -o eldamo/eldamo-data.xml
+fi
+
+# Create a DTD from XML
+java -cp tools/dtdgen/dtdgen.jar DTDGenerator eldamo/eldamo-data.xml > eldamo.dtd
+
+# Create an XSD from DTD
+java -jar tools/trang-20081028/trang.jar -I dtd -O xsd eldamo.dtd eldamo.xsd
+
+# Create HTML from XSD
+java -jar tools/saxon/saxon9he.jar -o:eldamo-out.html eldamo.xsd tools/xs3p/xs3p.xsl title="Eldamo Schema Documentation"

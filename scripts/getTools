@@ -1,0 +1,53 @@
+#!/bin/sh
+#
+# Get tools
+#
+
+color_echo() {
+	value=${2}
+	START="\033[1;31m"
+	END="\033[0m"
+	case "${value}" in
+	  r)
+        START="\033[1;31m"
+        ;;
+      g)
+        START="\033[1;32m"
+        ;;
+      b)
+		START="\033[1;34m"
+		;;
+	esac
+    echo "${START}${1}${END}" 
+}
+
+# Make a ./tools directory
+mkdir -p tools
+
+color_echo "Downloading Saxon" b
+# Download Saxon (9.6.0.6)
+curl "http://tcpdiag.dl.sourceforge.net/project/saxon/Saxon-HE/9.6/SaxonHE9-6-0-6J.zip" -o tools/SaxonHE9-6-0-6J.zip
+unzip -q tools/SaxonHE9-6-0-6J.zip -d tools/saxon
+rm tools/SaxonHE9-6-0-6J.zip
+
+color_echo "Downloading DTDGen" b
+# Download DTDGen
+curl "http://colocrossing.dl.sourceforge.net/project/saxon/DTDGenerator/7.0.1/dtdgen7-0-1.zip" -o tools/dtdgen7-0-1.zip
+unzip -q tools/dtdgen7-0-1.zip -d tools
+rm tools/dtdgen7-0-1.zip 
+
+color_echo "Downloading Trang" b
+# Download Trang
+curl "http://jing-trang.googlecode.com/files/trang-20081028.zip" -o tools/trang-20081028.zip
+unzip -q tools/trang-20081028.zip -d tools
+rm tools/trang-20081028.zip
+
+color_echo "Downloading xs3p" b
+# Download xs3p
+curl "http://iweb.dl.sourceforge.net/project/xs3p/xs3p-1.1.5.zip" -o tools/xs3p-1.1.5.zip
+unzip -q tools/xs3p-1.1.5.zip -d tools/xs3p
+rm tools/xs3p-1.1.5.zip
+
+color_echo "Downloading Linguistic Library" b
+# Download Linguistic Library (1.0.2)
+curl http://linguisticlibrary.org/linguisticlibrary_v1.0.2.zip -o tools/linguisticlibrary_v1.0.2.zip
