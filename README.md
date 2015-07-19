@@ -9,7 +9,19 @@ More information can be found on [eldamo.org](http://eldamo.org/).
 
 The `eldamo` directory contains a snapshot of the source provided by Paul Strack.
 
-## Tools
+## Scripts
+
+Utility scripts for analysis
+
+* `getTools` - downloads required tools for creating dtd, xsd, and html version of schema
+* `generateHtmlFromXml` - generates HTML from XSD using XSL
+
+
+`getTools` - downloads saxon, trang, and xs3p to the `tools` directory
+
+`generateHtmlFromXml` expects a `tools` directory with java/xsl tools and an `eldamo` directory with the `eldamo-data.xml` file. Providing the `s` flag (`generateHtmlFromXml -s`) will download the eldamo-data.xml file
+
+### Tools
 
 The `tools` directory contains external tools to process the Eldamo source.
 

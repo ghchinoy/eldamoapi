@@ -21,6 +21,7 @@ done
 
 if [[ ${fromsource} = true ]]; then
 # Get latest Eldamo data
+mkdir -p eldamo
 curl -H "User-Agent: browser/1.0" http://eldamo.org/content/data-model/eldamo-data.xml -o eldamo/eldamo-data.xml
 fi
 
