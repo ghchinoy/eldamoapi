@@ -7,7 +7,17 @@ An API and related tools around Paul Strack's [Eldamo](http://eldamo.org/) lexic
 
 More information can be found on [eldamo.org](http://eldamo.org/).
 
-The `eldamo` directory contains a snapshot of the source provided by Paul Strack.
+
+## Generating Go structs from XSD
+
+To create Go structs from an XSD, use [go-xsd](https://github.com/metaleap/go-xsd)
+
+	go get github.com/metaleap/go-xsd
+	go get github.com/metaleap/go-buildrun
+	xsd-makepkg -uri="127.0.0.1:4909/eldamo.xsd"
+
+Creates in `$GOHOME/src/github.com/metaleap/go-xsd-pkg/127.0.0.1:4909/`
+
 
 ## Scripts
 
