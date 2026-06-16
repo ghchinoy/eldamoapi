@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "server",
+  "dolt_database": "eldamo_server",
+  "project_id": "4c7045b3-e303-497f-b469-15fcf818ed51"
+}
