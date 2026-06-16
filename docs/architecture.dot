@@ -1,0 +1,105 @@
+digraph G {
+    fontname="Outfit,sans-serif";
+    fontsize=12;
+    rankdir=LR;
+    nodesep=0.5;
+    ranksep=0.8;
+    bgcolor="#0F172A"; // Sleek Slate 900 dark background
+    splines=true;
+    overlap=false;
+
+    // Default styles
+    node [
+        fontname="Outfit,sans-serif";
+        fontsize=10;
+        shape=box;
+        style="filled,rounded";
+        fillcolor="#1E293B"; // Slate 800
+        fontcolor="#F8FAFC"; // Slate 50
+        color="#334155"; // Slate 700
+        penwidth=1.5;
+    ];
+
+    edge [
+        fontname="Outfit,sans-serif";
+        fontsize=9;
+        fontcolor="#94A3B8"; // Slate 400
+        color="#475569"; // Slate 600
+        arrowsize=0.8;
+        penwidth=1.2;
+    ];
+
+    // Clusters / Sections
+    subgraph cluster_prep {
+        label="1. Dataset Preparation & Pipeline";
+        labeljust="l";
+        fontcolor="#38BDF8"; // Sky 400
+        fontsize=11;
+        color="#1E293B";
+        style="filled,dashed";
+        fillcolor="#0F172A";
+
+        xml_source [label="eldamo-data.xml\n(Raw Lexicon)", shape=note, fillcolor="#1E1B4B", color="#312E81", fontcolor="#E0E7FF"];
+        parse_tool [label="xml-to-jsonl\n(Go Utility)", shape=component, fillcolor="#0369A1", color="#075985", fontcolor="#F0F9FF"];
+        jsonl_out [label="eldamo.jsonl\n(Flat Lexicon Entries)", shape=note, fillcolor="#1E293B", color="#334155", fontcolor="#F8FAFC"];
+
+        xml_source -> parse_tool [label=" Stream parse"];
+        parse_tool -> jsonl_out [label=" Output"];
+    }
+
+    subgraph cluster_mcp_server {
+        label="2. Eldamo Go MCP Server";
+        labeljust="l";
+        fontcolor="#34D399"; // Emerald 400
+        fontsize=11;
+        color="#1E293B";
+        style="filled,dashed";
+        fillcolor="#13231C";
+
+        loader [label="Data Loader\n(Embed FS / Local / GCS)", shape=box, fillcolor="#064E3B", color="#065F46", fontcolor="#ECFDF5"];
+        index [label="In-Memory Search Index\n(Trie & Keyword Mapping)", shape=box, fillcolor="#064E3B", color="#065F46", fontcolor="#ECFDF5"];
+        mcp_core [label="Go MCP SDK\n(Tools & Resources)", shape=component, fillcolor="#064E3B", color="#065F46", fontcolor="#ECFDF5"];
+        sse_server [label="SSE Server\n(Streamable HTTP /sse)", shape=ellipse, fillcolor="#064E3B", color="#065F46", fontcolor="#ECFDF5"];
+
+        loader -> index [label=" Load JSONL"];
+        index -> mcp_core [label=" Serve queries"];
+        mcp_core -> sse_server [label=" Expose SSE/HTTP"];
+    }
+
+    subgraph cluster_run {
+        label="3. Deployment (GCP)";
+        labeljust="l";
+        fontcolor="#F59E0B"; // Amber 500
+        fontsize=11;
+        color="#1E293B";
+        style="filled,dashed";
+        fillcolor="#1E293B";
+
+        docker_img [label="Docker Container\n(Minimal Distroless)", shape=box, fillcolor="#78350F", color="#92400E", fontcolor="#FEF3C7"];
+        cloud_run [label="Google Cloud Run\n(Auto-scale / Serverless)", shape=component, fillcolor="#78350F", color="#92400E", fontcolor="#FEF3C7"];
+        iam_security [label="IAM Invoker Proxy\n(Secure Authentication)", shape=shield, fillcolor="#78350F", color="#92400E", fontcolor="#FEF3C7"];
+
+        docker_img -> cloud_run [label=" Deploy image"];
+        cloud_run -> iam_security [label=" Enforce access"];
+    }
+
+    subgraph cluster_client {
+        label="4. Coding Agents & Clients";
+        labeljust="l";
+        fontcolor="#A78BFA"; // Violet 400
+        fontsize=11;
+        color="#1E293B";
+        style="filled,dashed";
+        fillcolor="#1E1B4B";
+
+        gcloud_proxy [label="gcloud run proxy\n(Local Port 3000)", shape=ellipse, fillcolor="#4C1D95", color="#5B21B6", fontcolor="#F5F3FF"];
+        agent [label="Coding Agent\n(e.g., Cline, Antigravity)", shape=actor, fillcolor="#4C1D95", color="#5B21B6", fontcolor="#F5F3FF"];
+
+        agent -> gcloud_proxy [label=" localhost:3000/sse"];
+    }
+
+    // Connections across sections
+    jsonl_out -> loader [label=" Built-in or Fetch", style=dashed, color="#38BDF8"];
+    sse_server -> docker_img [label=" Packaged", style=dashed, color="#34D399"];
+    iam_security -> gcloud_proxy [label=" Relays HTTPS with\nOIDC Credentials", color="#F59E0B"];
+}
