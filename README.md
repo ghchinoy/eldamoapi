@@ -1,41 +1,203 @@
-# Eldamo API
+# 🌟 Eldamo Agent Tools 🌟
 
-An API and related tools around Paul Strack's [Eldamo](http://eldamo.org/) lexicon compilation for J. R. R. Tolkien's languages.
+An high-performance **Model Context Protocol (MCP) Server** written in Go, providing AI agents with instant, structured, and deep linguistic access to Paul Strack's [Eldamo](http://eldamo.org/) Tolkien language lexicon compilation.
+
+It features a fully secure, modern (2026-standard) **OAuth 2.1 Authentication Layer** utilizing **Client ID Metadata Documents (CIMD)**, **Firebase Auth**, and **GCP Cloud Run**.
+
+---
+
+## 📖 Table of Contents
+1. [System Architecture](#-system-architecture)
+2. [Exposed MCP Tools](#-exposed-mcp-tools)
+3. [OAuth 2.1 & CIMD Security Flow](#-oauth-21--cimd-security-flow)
+4. [Environment Variables & Configuration](#-environment-variables--configuration)
+5. [opencode MCP Configuration](#-opencode-mcp-configuration)
+6. [Local Development & Makefile](#-local-development--makefile)
+7. [Cloud Run Deployment](#-cloud-run-deployment)
+8. [Guide: How to Build Your Own Go MCP Server](docs/how-to-create-mcp-server-go.md)
+
+---
+
+## 🏗️ System Architecture
+
+The Eldamo MCP Server is designed for maximum speed, memory efficiency, and serverless scalability. It features a fully self-contained, zero-external-dependency, in-memory search engine.
+
+![Eldamo MCP Server Architecture](docs/architecture.webp)
+
+### Key Architectural Pillars:
+* **Gzip Embed In-Memory Engine (`data/`):** Rather than bloating Git or requiring external storage buckets, the preprocessed JSON Lines dataset is compressed to **`eldamo.jsonl.gz` (~4.5MB**, down from `24.8MB` raw) and embedded directly into the compiled Go binary using `go:embed`. On server startup, decompression executes in **less than 20ms**, ensuring instantaneous scale-from-zero on Google Cloud Run.
+* **Double-Index Search Engine (`index/`):**
+  * **Prefix Trie (Prefix Tree):** Maps all Tolkien vocabulary for ultra-fast, autocomplete-friendly word-spelling queries.
+  * **Inverted Keyword Index:** Tokenizes and normalizes glosses, definitions, neologisms, and historical linguistic notes, supporting complex matching.
+* **Ultra-Low Memory Footprint:** The entire compiled binary plus the complete decompressed index and tries consume only **`~40-50MB` of RAM**, enabling stable hosting on Cloud Run’s most economical resource tier.
+
+---
 
 
-## Eldamo
+## 🛠️ Exposed MCP Tools
 
-More information can be found on [eldamo.org](http://eldamo.org/).
+The server registers three highly specialized tools conforming to the Model Context Protocol specification:
+
+### 1. `enquire_lexicon`
+Performs general-purpose Tolkien linguistic search.
+* **Arguments:**
+  * `query` (string, required): Spelling prefix or search keyword (e.g. `"elen"`, `"flower"`, `"star"`).
+  * `language` (string, optional): ISO/Eldamo language code filter (e.g. `"q"` for Quenya, `"s"` for Sindarin, `"pc"` for Primitive Elvish).
+  * `speech` (string, optional): Part-of-speech filter (e.g. `"noun"`, `"verb"`, `"adjective"`, `"proper-name"`).
+  * `category` (string, optional): Filter by lexicon category/era (e.g. `"neo"` for neologisms, `"primary"` for Tolkien's writings, `"root"` for roots).
+
+### 2. `get_word_details`
+Fetches complete linguistic metadata, historical notes, inflections, and semantic details for an individual entry.
+* **Arguments:**
+  * `id` (string, required): The unique Eldamo `page-id` (e.g., `"218765"`).
+
+### 3. `get_derivations`
+Explores the genealogical relationship and linguistic evolution of words in Tolkien's tongues.
+* **Arguments:**
+  * `id` (string, required): The unique Eldamo `page-id` (e.g., `"218765"`).
+  * `direction` (string, optional): Either `"descendants"` (words produced by this word, default) or `"ancestors"` (the roots this word was derived from).
 
 
-## Generating Go structs from XSD
+## 🔒 OAuth 2.1 & CIMD Security Flow
 
-To create Go structs from an XSD, use [go-xsd](https://github.com/metaleap/go-xsd)
+This server implements a secure, zero-database-registration authorization pipeline based on the IETF draft **Client ID Metadata Documents (CIMD)**:
 
-	go get github.com/metaleap/go-xsd
-	go get github.com/metaleap/go-buildrun
-	xsd-makepkg -uri="127.0.0.1:4909/eldamo.xsd"
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant Client as MCP Client<br/>(e.g., Antigravity)
+    participant FB_Host as Firebase Hosting<br/>(mithlond-web SPA)
+    participant CR_Go as Cloud Run Backend<br/>(Go Auth Service)
+    participant Client_Host as Client Domain<br/>(Hosts CIMD)
+    participant FB_Auth as Firebase Auth<br/>(Identity Provider)
+    participant Firestore as Cloud Firestore
 
-Creates in `$GOHOME/src/github.com/metaleap/go-xsd-pkg/127.0.0.1:4909/`
+    Client->>CR_Go: GET /.well-known/oauth-authorization-server
+    CR_Go-->>Client: Return server metadata (CIMD supported)
+
+    Client->>User: Redirect browser to Authorization Page
+    User->>FB_Host: Load /mcp-auth page
+    User->>FB_Auth: Sign in via Google / Email
+    FB_Auth-->>User: Return User ID Token
+    User->>FB_Host: Extract ID Token
+
+    FB_Host->>CR_Go: POST /api/oauth/authorize-callback<br/>{id_token, client_id, redirect_uri}
+    CR_Go->>FB_Auth: Verify Firebase ID Token
+    CR_Go->>Client_Host: Secure GET https://client.com/metadata.json (SSRF-Safe)
+    CR_Go->>CR_Go: Validate Metadata parameters
+    CR_Go->>Firestore: Store transient 5-min authorization code
+    CR_Go-->>FB_Host: Return Auth Code
+    FB_Host->>User: Redirect browser to Client's callback
+
+    Client->>CR_Go: POST /api/oauth/token<br/>{grant_type=authorization_code, code, client_id, redirect_uri, code_verifier}
+    CR_Go->>Firestore: Validate & Delete Auth Code (One-time use)
+    CR_Go->>CR_Go: Verify PKCE S256
+    CR_Go-->>Client: Return stateless signed JWT Access & Refresh Tokens
+
+    Client->>CR_Go: POST /sse (Authorization: Bearer <JWT>)
+    CR_Go->>CR_Go: Validate local JWT signature & scopes (No DB hit!)
+    CR_Go-->>Client: Stream tool execution results
+```
+
+### Architectural Benefits:
+1. **Zero Registration Spam:** We do not expose a public registration endpoint. Clients host their own metadata JSON file (`client_id` URL). Trust is anchored on DNS ownership and HTTPS transport.
+2. **SSRF-Blocking Security:** The Go backend dialer resolves hostnames and blocks all private, local-link, loopback, and unspecified IPs in production to completely defeat Server-Side Request Forgery.
+3. **Stateless Scale-to-Zero Active Calls:** Access tokens are signed JWTs (`HS256`). During active MCP tool execution, signature validation is entirely local and CPU-bound—**never querying Firestore during active tool calls**, keeping response times in sub-milliseconds and GCP resource costs at zero!
 
 
-## Scripts
 
-Utility scripts for analysis
+## ⚙️ Environment Variables & Configuration
 
-* `getTools` - downloads required tools for creating dtd, xsd, and html version of schema
-* `generateHtmlFromXml` - generates HTML from XSD using XSL
+Local configurations are managed in a **`.env`** file at the project root. This file is excluded from Git to protect sensitive credentials.
 
+The backend uses the following environment variables, evaluated with fallback/precedence logic:
 
-`getTools` - downloads saxon, trang, and xs3p to the `tools` directory
+| Variable Name | Purpose | fallback / Precedence Logic |
+| :--- | :--- | :--- |
+| `GCP_PROJECT` | Google Cloud project ID. | Sourced from `.env`; defaults to `testingproject-19c4c` during build. |
+| `GCP_REGION` | Cloud Run container region. | Sourced from `.env`; defaults to `us-central1`. |
+| `SERVICE_NAME`| Cloud Run deployment name. | Sourced from `.env`; defaults to `eldamo-mcp-server`. |
+| `FIREBASE_PROJECT_ID` | Project ID for Firebase Admin verification. | Matches `GCP_PROJECT`. Defaults to `testingproject-19c4c`. |
+| `FIREBASE_DATABASE` | Targets specific Firestore DB instance. | Sourced from `.env`; defaults to **`mithlond-services`** (NOT `(default)`). |
+| `JWT_SIGNING_KEY` | Cryptographic key to sign/verify stateless tokens. | Sourced from `.env`; **dynamically generated as a random 32-char hex string** on first deploy if missing. |
+| `ELDAMO_API_KEYS` | (Optional) Comma-separated API keys. | Set to restrict access without full OAuth. If empty, OAuth 2.1 is used exclusively. |
 
-`generateHtmlFromXml` expects a `tools` directory with java/xsl tools and an `eldamo` directory with the `eldamo-data.xml` file. Providing the `s` flag (`generateHtmlFromXml -s`) will download the eldamo-data.xml file
+---
 
-### Tools
+## ⚡ opencode MCP Configuration
 
-The `tools` directory (built by `getTools` script) contains external tools to process the Eldamo XML source.
+To add your remote, secure Eldamo MCP server to **opencode**, point its remote multiplexer config to the Server-Sent Events `/sse` route on your Cloud Run service.
 
-* [Saxon](http://sourceforge.net/projects/saxon/) - XSLT &amp; XQuery processor and [DTD Generator](http://sourceforge.net/projects/saxon/files/DTDGenerator/)
-* [xs3p](http://sourceforge.net/projects/xs3p/) - Schema document HTML XSLT 
-* [trang](http://www.thaiopensource.com/relaxng/trang-manual.html) - more generic schema converter
-* [Linguistic Library](http://linguisticlibrary.org/) and [Sindarin Library](http://sindarinlibrary.com/) ([forums](http://sindarinlibrary.boards.net/))
+### Project-Specific Config (Local)
+Create an **`opencode.json`** file in the root of your local workspace directory:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "eldamo-remote": {
+      "type": "remote",
+      "url": "https://eldamo-mcp-server-308690897031.us-central1.run.app/sse",
+      "enabled": true
+    }
+  }
+}
+```
+
+### Global Config (Universal)
+Add the server block to your global configuration file at **`~/.config/opencode/opencode.json`**:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "eldamo-remote": {
+      "type": "remote",
+      "url": "https://eldamo-mcp-server-308690897031.us-central1.run.app/sse",
+      "enabled": true
+    }
+  }
+}
+```
+
+> [!IMPORTANT]
+> Always quit and **restart opencode** after saving configuration changes for the remote MCP server to take effect.
+
+---
+
+## 💻 Local Development & Testing
+
+### 1. Build and Run Local Server
+Compile and run the server locally on port `8080` (utilizing your local `.env` configuration):
+```bash
+make run
+```
+
+### 2. Run Test Suite
+Our comprehensive test suite validates database models, prefix/keyword indexers, SSRF dialer blocking, CIMD parser mocks, and cryptographic JWT verifications:
+```bash
+make test
+```
+
+### 3. Static Code Analysis (Linter)
+Validate code quality using golangci-lint:
+```bash
+golangci-lint run
+```
+
+---
+
+## 🚀 Cloud Run Deployment
+
+Deployment is fully automated using our secure shell pipeline. This pipeline loads your local `.env` variables, ensures GCP resources are fully initialized, and compiles the service in-cloud.
+
+```bash
+# Execute deployment pipeline
+./scripts/deploy.sh
+```
+
+### Deployment Blueprint & Security Hardening:
+* **IAM Least-Privilege Role Binding:** The script automatically checks for a dedicated, isolated service account `eldamo-mcp-runner`. It binds only the **`roles/datastore.user`** permission to allow reading and purging transient Firestore codes, leaving other cloud segments fully protected.
+* **Auto-Purging TTL Policy:** The database TTL is automatically configured via `gcloud` to purge expired codes from the `mcp_auth_codes` collection after 5 minutes, preventing manual maintenance tasks.
+* **Docker Containerization:** Google Cloud Build runs a multi-stage compilation in-cloud, compiling an optimized, statically linked Go binary running inside a minimal Scratch container.

@@ -1,0 +1,135 @@
+#!/bin/bash
+set -euo pipefail
+
+# Eldamo MCP Server Cloud Run Deployment Script
+# Moves deployment configurations into a local .env file.
+# Manages dedicated service accounts according to GCP security best practices.
+
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPTS_DIR")"
+
+ENV_FILE="$PROJECT_ROOT/.env"
+
+# Default fallback values
+DEFAULT_GCP_PROJECT="testingproject-19c4c"
+DEFAULT_REGION="us-central1"
+DEFAULT_SERVICE_NAME="eldamo-mcp-server"
+
+# Load .env file if it exists
+if [ -f "$ENV_FILE" ]; then
+    echo "Loading deployment configuration from .env..."
+    # Export variables from .env
+    set -a
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +a
+else
+    echo "No .env file found in project root. Creating one with defaults..."
+    RANDOM_JWT_KEY=$(openssl rand -hex 32 2>/dev/null || od -vN 32 -An -tx1 /dev/urandom | tr -d ' \n' | head -c 64)
+    cat <<EOF > "$ENV_FILE"
+# Google Cloud Platform Configuration
+GCP_PROJECT=$DEFAULT_GCP_PROJECT
+GCP_REGION=$DEFAULT_REGION
+SERVICE_NAME=$DEFAULT_SERVICE_NAME
+
+# Eldamo Security Configuration
+# Comma-separated list of allowed API keys for MCP server access
+# Leave empty to run in UNPROTECTED mode
+ELDAMO_API_KEYS=
+
+# Firebase & OAuth Configuration
+FIREBASE_PROJECT_ID=$DEFAULT_GCP_PROJECT
+FIREBASE_DATABASE=mithlond-services
+JWT_SIGNING_KEY=$RANDOM_JWT_KEY
+EOF
+    echo "Created .env file at $ENV_FILE. Please configure your settings there."
+    GCP_PROJECT="$DEFAULT_GCP_PROJECT"
+    GCP_REGION="$DEFAULT_REGION"
+    SERVICE_NAME="$DEFAULT_SERVICE_NAME"
+    ELDAMO_API_KEYS=""
+fi
+
+# Ensure OAuth defaults are set if not defined in sourced .env
+FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-$GCP_PROJECT}"
+FIREBASE_DATABASE="${FIREBASE_DATABASE:-mithlond-services}"
+if [ -z "${JWT_SIGNING_KEY:-}" ]; then
+    echo "JWT_SIGNING_KEY not set. Generating a random key for deployment..."
+    JWT_SIGNING_KEY=$(openssl rand -hex 32 2>/dev/null || od -vN 32 -An -tx1 /dev/urandom | tr -d ' \n' | head -c 64)
+fi
+
+echo "========================================="
+echo " Deploying Eldamo MCP Server to Cloud Run "
+echo "========================================="
+echo "GCP Project:   $GCP_PROJECT"
+echo "Region:        $GCP_REGION"
+echo "Service Name:  $SERVICE_NAME"
+echo "========================================="
+
+# Set gcloud project context
+gcloud config set project "$GCP_PROJECT" --quiet
+
+# -----------------------------------------------------------------------------
+# Dedicated Service Account Management
+# -----------------------------------------------------------------------------
+# GCP Security Best Practice: Use a fine-grained, dedicated Service Account
+# with minimal/zero privileges instead of the broad default Compute Engine SA.
+SERVICE_ACCOUNT_NAME="eldamo-mcp-runner"
+SERVICE_ACCOUNT_EMAIL="$SERVICE_ACCOUNT_NAME@$GCP_PROJECT.iam.gserviceaccount.com"
+
+echo "Checking for dedicated service account: $SERVICE_ACCOUNT_EMAIL..."
+if ! gcloud iam service-accounts describe "$SERVICE_ACCOUNT_EMAIL" &>/dev/null; then
+    echo "Service account not found. Creating $SERVICE_ACCOUNT_EMAIL..."
+    gcloud iam service-accounts create "$SERVICE_ACCOUNT_NAME" \
+        --description="Minimal privilege runner for the Eldamo MCP Server" \
+        --display-name="Eldamo MCP Runner" \
+        --quiet
+    echo "✓ Successfully created service account."
+else
+    echo "✓ Service account exists."
+fi
+
+# Note: The service account requires roles/datastore.user for writing/reading
+# temporary OAuth authorization codes to Firestore.
+echo "Ensuring Datastore User role is bound to service account..."
+gcloud projects add-iam-policy-binding "$GCP_PROJECT" \
+    --member="serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
+    --role="roles/datastore.user" \
+    --quiet &>/dev/null || echo "Warning: failed to bind datastore.user role (ensure you have project owner/admin permissions)."
+
+# -----------------------------------------------------------------------------
+# Build and Deploy
+# -----------------------------------------------------------------------------
+ENV_VARS="FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID,FIREBASE_DATABASE=$FIREBASE_DATABASE,JWT_SIGNING_KEY=$JWT_SIGNING_KEY"
+if [ -n "${ELDAMO_API_KEYS:-}" ]; then
+    ENV_VARS="$ENV_VARS,ELDAMO_API_KEYS=$ELDAMO_API_KEYS"
+    echo "-> Configured with API key protection."
+else
+    echo "-> Running in UNPROTECTED/OAUTH-ONLY mode (access restricted by OAuth)."
+fi
+
+echo "Deploying with environment variables: FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID, FIREBASE_DATABASE=$FIREBASE_DATABASE"
+echo "Deploying..."
+
+# Build and Deploy using Google Cloud Build (source-based deployment)
+# - --service-account binds our dedicated, minimal runner SA
+# - --memory 256Mi and --cpu 1 keep resource footprint very low and cost-efficient
+# - --session-affinity ensures sticky routing to the same container for SSE sessions
+gcloud run deploy "$SERVICE_NAME" \
+    --source "$PROJECT_ROOT" \
+    --region "$GCP_REGION" \
+    --memory "256Mi" \
+    --cpu "1" \
+    --port "8080" \
+    --service-account "$SERVICE_ACCOUNT_EMAIL" \
+    --allow-unauthenticated \
+    --session-affinity \
+    --max-instances 1 \
+    --set-env-vars "$ENV_VARS"
+
+echo ""
+echo "========================================="
+echo " Deployment Complete! "
+echo "========================================="
+echo "Your Eldamo MCP Server is live. To get its URL, run:"
+echo "  gcloud run services describe $SERVICE_NAME --region $GCP_REGION --format='value(status.url)'"
+echo "========================================="

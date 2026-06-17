@@ -7,7 +7,19 @@ eldamo
 tools
 output
 
+plans/
+
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
 .beads-credential-key
+
+# Generated data artifacts (Go embed requires this local file at build-time, but it is excluded from Git to prevent repository bloat)
+data/eldamo.jsonl
+
+# Compiled binaries
+eldamoapi
+
+# Local environment configuration
+.env
+opencode.json
