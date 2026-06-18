@@ -488,8 +488,15 @@ func handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 
 // oauthMiddleware is an HTTP middleware that intercepts requests, extracts the
 // signed stateless JWT access token, and verifies its signature and validity.
+// If AUTH_BYPASS is set to "true", authentication is disabled for local testing.
 func oauthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if os.Getenv("AUTH_BYPASS") == "true" {
+			log.Printf("[Auth] AUTH_BYPASS enabled, skipping authentication for %s %s", r.Method, r.URL.Path)
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		// 1. Try to extract bearer token from Authorization header
 		var tokenStr string
 		authHeader := r.Header.Get("Authorization")

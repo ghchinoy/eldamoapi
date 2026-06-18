@@ -36,6 +36,8 @@ SERVICE_NAME=$DEFAULT_SERVICE_NAME
 # Comma-separated list of allowed API keys for MCP server access
 # Leave empty to run in UNPROTECTED mode
 ELDAMO_API_KEYS=
+# URL for the Elvish TTS Pronunciation Service
+ELVISH_TTS_URL=
 
 # Firebase & OAuth Configuration
 FIREBASE_PROJECT_ID=$DEFAULT_GCP_PROJECT
@@ -103,8 +105,10 @@ ENV_VARS="FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID,FIREBASE_DATABASE=$FIREBASE_D
 if [ -n "${ELDAMO_API_KEYS:-}" ]; then
     ENV_VARS="$ENV_VARS,ELDAMO_API_KEYS=$ELDAMO_API_KEYS"
     echo "-> Configured with API key protection."
-else
-    echo "-> Running in UNPROTECTED/OAUTH-ONLY mode (access restricted by OAuth)."
+fi
+if [ -n "${ELVISH_TTS_URL:-}" ]; then
+    ENV_VARS="$ENV_VARS,ELVISH_TTS_URL=$ELVISH_TTS_URL"
+    echo "-> Configured with TTS Service URL: $ELVISH_TTS_URL"
 fi
 
 echo "Deploying with environment variables: FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID, FIREBASE_DATABASE=$FIREBASE_DATABASE"

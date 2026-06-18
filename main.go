@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -30,6 +31,65 @@ type GetWordDetailsArgs struct {
 type GetDerivationsArgs struct {
 	ID        string `json:"id" jsonschema:"The unique page-id of the word (e.g., '218765')"`
 	Direction string `json:"direction,omitempty" jsonschema:"The direction of derivation: 'ancestors' (what this word was derived from) or 'descendants' (what words were derived from this word). Defaults to 'descendants'"`
+}
+
+type RenderElvishAudioArgs struct {
+	Text  string  `json:"text" jsonschema:"The Elvish word or phrase to pronounce."`
+	Voice string  `json:"voice,omitempty" jsonschema:"Optional voice identifier (e.g., 'sarah', 'bella', 'adam')."`
+	Speed float64 `json:"speed,omitempty" jsonschema:"Optional speed, default 0.8."`
+}
+
+func renderElvishAudioHandler(ctx context.Context, req *mcp.CallToolRequest, args RenderElvishAudioArgs) (*mcp.CallToolResult, any, error) {
+	ttsURL := os.Getenv("ELVISH_TTS_URL")
+	if ttsURL == "" {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: "Error: TTS_SERVICE_URL not configured."},
+			},
+			IsError: true,
+		}, nil, nil
+	}
+
+	speed := args.Speed
+	if speed == 0 {
+		speed = 0.8 // Default to slightly slower
+	}
+
+	payload := map[string]interface{}{
+		"text":  args.Text,
+		"voice": args.Voice,
+		"speed": speed,
+	}
+	if payload["voice"] == "" {
+		payload["voice"] = "sarah"
+	}
+
+	body, _ := json.Marshal(payload)
+	resp, err := http.Post(ttsURL+"/api/g2p", "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to call TTS service: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil, fmt.Errorf("TTS service returned status: %d", resp.StatusCode)
+	}
+
+	var ttsResp struct {
+		AudioURL string `json:"audio_url"`
+		Phonemes string `json:"phonemes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&ttsResp); err != nil {
+		return nil, nil, fmt.Errorf("failed to decode TTS response: %w", err)
+	}
+
+	fullAudioURL := ttsURL + ttsResp.AudioURL
+	msg := fmt.Sprintf("Synthesized pronunciation for '%s' (speed: %.1f).\n\nPhonemes: %s\nAudio URL: %s", args.Text, speed, ttsResp.Phonemes, fullAudioURL)
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: msg},
+		},
+	}, nil, nil
 }
 
 func enquireLexiconHandler(ctx context.Context, req *mcp.CallToolRequest, args EnquireLexiconArgs) (*mcp.CallToolResult, any, error) {
@@ -307,6 +367,13 @@ func main() {
 		Name:        "get_derivations",
 		Description: "Retrieve derivation history (ancestors or descendants) of a word by its unique page ID.",
 	}, getDerivationsHandler)
+
+	if os.Getenv("ELVISH_TTS_URL") != "" {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "render_elvish_audio",
+			Description: "Synthesizes pronunciation for Elvish words or phrases using Kokoro-based TTS.",
+		}, renderElvishAudioHandler)
+	}
 
 	// Create multiplexed handler to support both SSE and Streamable HTTP transports
 	handler := NewMcpMultiplexerHandler(func(*http.Request) *mcp.Server { return server })

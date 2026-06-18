@@ -9,9 +9,10 @@ Welcome! This document provides critical architectural context, workspace layout
 This project is a high-performance **Go-native Model Context Protocol (MCP) Server** with a zero-registration, stateless **OAuth 2.1 security layer**. It consists of two tightly coupled repositories:
 
 1. **Backend Go Server (`eldamo-server` - This Repository):**
-   * Exposes multiplexed SSE/Streamable HTTP MCP tools (`enquire_lexicon`, `get_word_details`, `get_derivations`).
+   * Exposes multiplexed SSE/Streamable HTTP MCP tools (`enquire_lexicon`, `get_word_details`, `get_derivations`, `render_elvish_audio`).
    * Loads Paul Strack's lexicon into memory from a compressed embedded filesystem (`data/eldamo.jsonl.gz`).
    * Handles OAuth 2.1 token exchanges (`/api/oauth/token`) and local JWT bearer verification (`oauthMiddleware`).
+   * Includes a conditional TTS proxy capability (enabled via `ELVISH_TTS_URL`) to support audio pronunciation.
 2. **Frontend UI (`mithlond-web` - Sibling Directory `../mithlond-web`):**
    * Hosted on **Firebase Hosting** (linked to custom domain `www.mithlond.com`).
    * Serves the consent single-page application at `/mcp-auth` (`public/mcp-auth.html`).
@@ -36,6 +37,12 @@ Use these `Makefile` targets to build, run, and test your changes:
 * **`make token`:** Generates a secure, 1-hour Access Token JWT using your local `.env` key for local or remote MCP testing.
 * **`golangci-lint run`:** Runs the project-standard linter. Maintain a strict **0 issues** bar before merging or deploying.
 * **`./scripts/deploy.sh`:** Builds and deploys the container to Cloud Run (automatically configures minimal service accounts and binds `roles/datastore.user`).
+
+---
+
+## 📚 Further Documentation
+
+For detailed local setup, troubleshooting, and environment configuration (including authentication bypass and TTS configuration), see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ---
 
