@@ -251,6 +251,33 @@ func (idx *Index) GetDerivations(id string, direction string) []*FlatWord {
 	return results
 }
 
+// GetRootAnchors recursively retrieves all descendants of a word/root and filters them for proper names or place names
+func (idx *Index) GetRootAnchors(id string) []*FlatWord {
+	var results []*FlatWord
+	seen := make(map[string]bool)
+
+	var traverse func(currID string)
+	traverse = func(currID string) {
+		targets := idx.DerivsTarget[currID]
+		for _, tID := range targets {
+			if seen[tID] {
+				continue
+			}
+			seen[tID] = true
+			if word, found := idx.Words[tID]; found {
+				speechLower := strings.ToLower(word.Speech)
+				if strings.Contains(speechLower, "name") {
+					results = append(results, word)
+				}
+				traverse(tID)
+			}
+		}
+	}
+
+	traverse(id)
+	return results
+}
+
 // filterAndHydrate filters a list of word IDs and converts them into FlatWord objects
 func (idx *Index) filterAndHydrate(ids []string, lang, speech, category string) []*FlatWord {
 	var results []*FlatWord

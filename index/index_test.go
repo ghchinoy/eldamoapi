@@ -8,6 +8,7 @@ var sampleJSONL = []byte(`{"id":"101","word":"elen","language":"q","speech":"nou
 {"id":"102","word":"elendil","language":"q","speech":"noun","gloss":"star-lover","category":"primary","refs":["101"]}
 {"id":"103","word":"silme","language":"q","speech":"noun","gloss":"starlight","notes_cleaned":"light of the silmaril star","category":"neo"}
 {"id":"104","word":"ala","language":"s","speech":"verb","gloss":"grow","category":"primary"}
+{"id":"105","word":"Elendil","language":"q","speech":"masc-name","gloss":"Elendil","category":"primary","refs":["102"]}
 `)
 
 func TestTriePrefixSearch(t *testing.T) {
@@ -18,30 +19,30 @@ func TestTriePrefixSearch(t *testing.T) {
 
 	// 1. Test exact prefix search
 	matches := idx.SearchPrefix("elen", "", "", "")
-	if len(matches) != 2 {
-		t.Errorf("Expected 2 prefix matches for 'elen', got %d", len(matches))
+	if len(matches) != 3 {
+		t.Errorf("Expected 3 prefix matches for 'elen', got %d", len(matches))
 	}
 
 	// 2. Test casing insensitivity
 	matches = idx.SearchPrefix("ELEN", "", "", "")
-	if len(matches) != 2 {
-		t.Errorf("Expected casing insensitivity to match 2, got %d", len(matches))
+	if len(matches) != 3 {
+		t.Errorf("Expected casing insensitivity to match 3, got %d", len(matches))
 	}
 
 	// 3. Test filtering by language
 	matches = idx.SearchPrefix("elen", "q", "", "")
-	if len(matches) != 2 {
-		t.Errorf("Expected 2 matching 'q' language, got %d", len(matches))
+	if len(matches) != 3 {
+		t.Errorf("Expected 3 matching 'q' language, got %d", len(matches))
 	}
 	matches = idx.SearchPrefix("elen", "s", "", "")
 	if len(matches) != 0 {
 		t.Errorf("Expected 0 matching 's' language, got %d", len(matches))
 	}
 
-	// 4. Test exact single match
+	// 4. Test exact match prefix 'elend'
 	matches = idx.SearchPrefix("elend", "", "", "")
-	if len(matches) != 1 || matches[0].Word != "elendil" {
-		t.Errorf("Expected matching 'elendil', got %v", matches)
+	if len(matches) != 2 {
+		t.Errorf("Expected 2 matches for 'elend', got %d", len(matches))
 	}
 }
 
@@ -91,5 +92,18 @@ func TestDerivations(t *testing.T) {
 	descendants := idx.GetDerivations("101", "descendants")
 	if len(descendants) != 1 || descendants[0].ID != "102" {
 		t.Errorf("Expected descendant of '101' to be '102', got %v", descendants)
+	}
+}
+
+func TestGetRootAnchors(t *testing.T) {
+	idx, err := NewIndex(sampleJSONL)
+	if err != nil {
+		t.Fatalf("Failed to build index: %v", err)
+	}
+
+	// 105 (Elendil, masc-name) is recursively derived from 101 (elen).
+	anchors := idx.GetRootAnchors("101")
+	if len(anchors) != 1 || anchors[0].ID != "105" {
+		t.Errorf("Expected root anchor of '101' to be '105', got %v", anchors)
 	}
 }

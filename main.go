@@ -33,6 +33,10 @@ type GetDerivationsArgs struct {
 	Direction string `json:"direction,omitempty" jsonschema:"The direction of derivation: 'ancestors' (what this word was derived from) or 'descendants' (what words were derived from this word). Defaults to 'descendants'"`
 }
 
+type GetRootAnchorsArgs struct {
+	ID string `json:"id" jsonschema:"The unique page-id of the root or base word (e.g., '2071154627' for root LIK)"`
+}
+
 type RenderElvishAudioArgs struct {
 	Text  string  `json:"text" jsonschema:"The Elvish word or phrase to pronounce."`
 	Voice string  `json:"voice,omitempty" jsonschema:"Optional voice identifier (e.g., 'sarah', 'bella', 'adam')."`
@@ -247,6 +251,42 @@ func getDerivationsHandler(ctx context.Context, req *mcp.CallToolRequest, args G
 	}, nil, nil
 }
 
+func getRootAnchorsHandler(ctx context.Context, req *mcp.CallToolRequest, args GetRootAnchorsArgs) (*mcp.CallToolResult, any, error) {
+	id := strings.TrimSpace(args.ID)
+	log.Printf("[Tool Call] get_root_anchors: id='%s'", id)
+	if id == "" {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: "Error: id cannot be empty"},
+			},
+			IsError: true,
+		}, nil, nil
+	}
+
+	anchors := lexiconIndex.GetRootAnchors(id)
+	if len(anchors) == 0 {
+		log.Printf("[Tool Result] get_root_anchors: found 0 anchors for word ID '%s'", id)
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: fmt.Sprintf("No proper-noun or place name anchors found derived from ID '%s'.", id)},
+			},
+		}, nil, nil
+	}
+
+	resBytes, err := json.MarshalIndent(anchors, "", "  ")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal root anchors: %w", err)
+	}
+
+	log.Printf("[Tool Result] get_root_anchors: found %d anchors for word ID '%s'", len(anchors), id)
+	msg := fmt.Sprintf("Found %d character/place name anchors derived from ID '%s':\n\n```json\n%s\n```", len(anchors), id, string(resBytes))
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: msg},
+		},
+	}, nil, nil
+}
+
 func sseLoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[HTTP Request] %s %s from %s (User-Agent: %s)", r.Method, r.URL.Path, r.RemoteAddr, r.UserAgent())
@@ -367,6 +407,11 @@ func main() {
 		Name:        "get_derivations",
 		Description: "Retrieve derivation history (ancestors or descendants) of a word by its unique page ID.",
 	}, getDerivationsHandler)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_root_anchors",
+		Description: "Retrieve proper names (characters, places, etc.) recursively derived from a specific root or base word ID.",
+	}, getRootAnchorsHandler)
 
 	if os.Getenv("ELVISH_TTS_URL") != "" {
 		mcp.AddTool(server, &mcp.Tool{
