@@ -9,12 +9,13 @@ It features a fully secure, modern (2026-standard) **OAuth 2.1 Authentication La
 ## 📖 Table of Contents
 1. [System Architecture](#-system-architecture)
 2. [Exposed MCP Tools](#-exposed-mcp-tools)
-3. [OAuth 2.1 & CIMD Security Flow](#-oauth-21--cimd-security-flow)
-4. [Environment Variables & Configuration](#-environment-variables--configuration)
-5. [opencode MCP Configuration](#-opencode-mcp-configuration)
-6. [Local Development & Makefile](#-local-development--makefile)
-7. [Cloud Run Deployment](#-cloud-run-deployment)
-8. [Guide: How to Build Your Own Go MCP Server](docs/how-to-create-mcp-server-go.md)
+3. [Developer Agent Skills](#-developer-agent-skills)
+4. [OAuth 2.1 & CIMD Security Flow](#-oauth-21--cimd-security-flow)
+5. [Environment Variables & Configuration](#-environment-variables--configuration)
+6. [opencode MCP Configuration](#-opencode-mcp-configuration)
+7. [Local Development & Testing](#-local-development--testing)
+8. [Cloud Run Deployment](#-cloud-run-deployment)
+9. [Guide: How to Build Your Own Go MCP Server](docs/how-to-create-mcp-server-go.md)
 
 ---
 
@@ -56,6 +57,20 @@ Explores the genealogical relationship and linguistic evolution of words in Tolk
 * **Arguments:**
   * `id` (string, required): The unique Eldamo `page-id` (e.g., `"218765"`).
   * `direction` (string, optional): Either `"descendants"` (words produced by this word, default) or `"ancestors"` (the roots this word was derived from).
+
+
+## 🧠 Developer Agent Skills
+
+This repository bundles highly specialized agent skills within the `skills/` directory, helping developer agents solve complex, artistic, and precise Elvish linguistic tasks:
+
+### 1. `neologism-builder`
+* **TL;DR:** Guides the creation of authentic Neo-Elvish vocabulary. Offers a choice between **Practical (Functional)** compounding and **Poetic (Metaphorical)** concepts, evaluated via an advanced **100-point Quantitative Scoring Matrix** that balances strict phonetic constraints against acoustic iconicity and proper-noun lineage.
+
+### 2. `tolkien-name-generator`
+* **TL;DR:** Autonomously generates grammatically and historically correct Tolkien Elvish names for people, places, stars, or weapons. Compounds linguistic roots using proper Sandhi consonant merges and applies attested suffix paradigms.
+
+### 3. `tolkien-translation`
+* **TL;DR:** Translates English phrases into Tolkien's main languages (Quenya, Sindarin, and Adûnaic). Analyzes sentence grammar, verb conjugations, adjective agreements, and case morphology, ensuring appropriate historical dialect selection.
 
 
 ## 🔒 OAuth 2.1 & CIMD Security Flow
