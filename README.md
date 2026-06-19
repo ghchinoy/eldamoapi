@@ -37,7 +37,7 @@ The Eldamo MCP Server is designed for maximum speed, memory efficiency, and serv
 
 ## 🛠️ Exposed MCP Tools
 
-The server registers three highly specialized tools conforming to the Model Context Protocol specification:
+The server registers four highly specialized tools conforming to the Model Context Protocol specification:
 
 ### 1. `enquire_lexicon`
 Performs general-purpose Tolkien linguistic search.
@@ -57,6 +57,11 @@ Explores the genealogical relationship and linguistic evolution of words in Tolk
 * **Arguments:**
   * `id` (string, required): The unique Eldamo `page-id` (e.g., `"218765"`).
   * `direction` (string, optional): Either `"descendants"` (words produced by this word, default) or `"ancestors"` (the roots this word was derived from).
+
+### 4. `get_root_anchors`
+Retrieves proper names (characters, places, stars, weapons, etc.) recursively derived from a specific root or base word ID.
+* **Arguments:**
+  * `id` (string, required): The unique Eldamo `page-id` of the root or base word (e.g., `"2071154627"`).
 
 
 ## 🧠 Developer Agent Skills
