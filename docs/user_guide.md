@@ -1,6 +1,6 @@
 # 🏹 Connecting to the Mithlond Eldamo MCP Server
 
-Welcome! The Mithlond Eldamo MCP Server is a secure, high-performance Tolkien language lexicon service. You can connect your local AI coding assistant (such as Cursor, Claude Desktop, Windsurf, or opencode) directly to it to query Quenya, Sindarin, and Adûnaic entries in real-time.
+Welcome! The Mithlond Eldamo MCP Server is a secure, high-performance Tolkien language lexicon service. You can connect your local AI coding assistant (such as Cursor, Claude Desktop, or opencode) directly to it to query Quenya, Sindarin, and Adûnaic entries in real-time.
 
 Here is how to set up your connection in under 2 minutes.
 

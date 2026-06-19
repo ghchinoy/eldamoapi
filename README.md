@@ -152,29 +152,6 @@ Add the server block to your global configuration file at **`~/.config/opencode/
 
 ---
 
-### 2. Google Antigravity
-Configure the server in your global configuration file at **`~/.gemini/config/mcp_config.json`**:
-
-```json
-{
-  "mcpServers": {
-    "eldamo-remote": {
-      "serverUrl": "https://eldamo-mcp-server-308690897031.us-central1.run.app/sse",
-      "headers": {
-        "X-Mcp-Force-Sse": "true"
-      },
-      "oauth": {
-        "clientId": "https://www.mithlond.com/metadata.json",
-        "authorizationUrl": "https://www.mithlond.com/mcp-auth",
-        "tokenUrl": "https://eldamo-mcp-server-308690897031.us-central1.run.app/api/oauth/token"
-      }
-    }
-  }
-}
-```
-
----
-
 ## 🔒 OAuth 2.1 & CIMD Security Flow
 
 This server implements a secure, zero-database-registration authorization pipeline based on the IETF draft **Client ID Metadata Documents (CIMD)**:
