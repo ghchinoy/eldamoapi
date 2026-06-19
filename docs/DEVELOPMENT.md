@@ -10,7 +10,7 @@ Set the `AUTH_BYPASS` environment variable to `true` when starting the server.
 export AUTH_BYPASS=true
 # Optional: Set the TTS service URL if needed
 export ELVISH_TTS_URL=http://127.0.0.1:8082
-go run main.go oauth.go
+go run main.go oauth.go user.go
 ```
 
 When `AUTH_BYPASS=true` is present, the `oauthMiddleware` will skip JWT token validation for all incoming requests, allowing the `opencode` client to connect without providing a valid `MITHLOND_ACCESS_TOKEN`. 
@@ -25,6 +25,6 @@ The `render_elvish_audio` MCP tool is conditionally enabled. To use it, you must
 2. Start the server:
    ```bash
    export ELVISH_TTS_URL=http://127.0.0.1:8082
-   go run main.go oauth.go
+   go run main.go oauth.go user.go
    ```
 The `render_elvish_audio` tool will be automatically detected and available to `opencode`.

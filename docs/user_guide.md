@@ -58,7 +58,11 @@ Append the following `eldamo-remote` block inside your `mcpServers` object:
 ```
 
 ### 📂 opencode / CLI Agents
-Add the following to your local workspace `opencode.json` or global `~/.config/opencode/opencode.json`:
+
+You can configure opencode to use either **Pre-Authenticated** headers or the **Dynamic OAuth 2.1** flow:
+
+#### Option A: Pre-Authenticated Header
+Using your manually generated token from the administrator:
 ```json
 {
   "mcp": {
@@ -74,9 +78,59 @@ Add the following to your local workspace `opencode.json` or global `~/.config/o
 }
 ```
 
+#### Option B: Dynamic OAuth 2.1 (Seamless)
+Let OpenCode handle the browser login flow and token lifecycle automatically:
+```json
+{
+  "mcp": {
+    "eldamo-remote": {
+      "type": "remote",
+      "url": "https://www.mithlond.com/sse",
+      "enabled": true,
+      "oauth": {
+        "clientId": "https://www.mithlond.com/metadata.json",
+        "authorizationUrl": "https://www.mithlond.com/mcp-auth",
+        "tokenUrl": "https://www.mithlond.com/api/oauth/token"
+      }
+    }
+  }
+}
+```
+
 ---
 
-## 3. Verify Your Connection
+## 3. Troubleshooting Guide
+
+If your assistant is having issues establishing a connection, check the common troubleshooting steps below:
+
+### Issue A: `403 (Forbidden)` during authorize-callback (Google Login)
+* **Description:** You click "Approve and Connect" in your browser but receive a `403 Forbidden` error.
+* **The Cause:** 
+  1. Your Firebase User UID is not authorized in Firestore.
+  2. The dynamic client's redirect loopback URL (e.g. `http://127.0.0.1:19876/mcp/oauth/callback`) does not match the allowed patterns in the live `https://www.mithlond.com/metadata.json` document.
+* **The Fix:**
+  * Contact your administrator to add your Google Auth `UID` (found in Firestore console) to the `authorized_users` collection and mark it `active: true`.
+  * Ensure the allowed `redirect_uris` in your web portal's `metadata.json` includes the correct host and path: `"http://127.0.0.1:8080/mcp/oauth/callback"`. Our server is RFC 8252 compliant and will match any dynamic port (like `19876`) automatically if the path and host match!
+
+### Issue B: `401 Unauthorized: Invalid token type or claims`
+* **Description:** The client is authenticated but requests are rejected with a 401 error.
+* **The Cause:** The generated token is missing the required claim `"type": "access"`.
+* **The Fix:** Ensure you generate tokens using the modern `eldamo-admin` tool instead of legacy/manual JWT scripts:
+  ```bash
+  # Generate a valid, typed token
+  make token UID=your-user-uid
+  ```
+
+### Issue C: `Incompatible auth server: does not support dynamic client registration`
+* **Description:** OpenCode halts diagnostic connections with this dynamic client registration error.
+* **The Cause:** OpenCode failed to read the OAuth capability hints from the server or loaded a conflicting local `opencode.json` configuration that omitted the `oauth` block.
+* **The Fix:** 
+  * Ensure you don't have a redundant parent `opencode.json` overriding your local configuration with stale headers (like static environment variables).
+  * Run `opencode mcp auth logout eldamo-remote` and clear the local cache: `rm -rf ~/.cache/opencode/*` before authenticating again.
+
+---
+
+## 4. Verify Your Connection
 
 Restart your IDE or active CLI agent session for configuration changes to take effect. 
 

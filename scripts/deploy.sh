@@ -101,7 +101,7 @@ gcloud projects add-iam-policy-binding "$GCP_PROJECT" \
 # -----------------------------------------------------------------------------
 # Build and Deploy
 # -----------------------------------------------------------------------------
-ENV_VARS="FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID,FIREBASE_DATABASE=$FIREBASE_DATABASE,JWT_SIGNING_KEY=$JWT_SIGNING_KEY"
+ENV_VARS="FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID,FIREBASE_DATABASE=$FIREBASE_DATABASE,JWT_SIGNING_KEY=$JWT_SIGNING_KEY,CACHE_BUSTER=$(date +%s)"
 if [ -n "${ELDAMO_API_KEYS:-}" ]; then
     ENV_VARS="$ENV_VARS,ELDAMO_API_KEYS=$ELDAMO_API_KEYS"
     echo "-> Configured with API key protection."

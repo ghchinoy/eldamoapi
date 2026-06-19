@@ -362,7 +362,15 @@ Do **NOT** set `Stateless: true` in your `StreamableHTTPOptions` if your clients
 
 In decentralised AI ecosystems, statically configured API keys or manual registration models are highly restrictive and difficult to maintain. Using the modern **OAuth 2.1 and Client ID Metadata Documents (CIMD)** protocol resolves this entirely:
 
-### 1. SSRF-Safe Dynamic Client Validation
+### 1. Choosing Firestore for the Authorization Layer
+When building stateful OAuth 2.1 authorization servers, you must manage ephemeral states: specifically, the **5-minute authorization codes** issued during the user-approval step and exchanged during the token-request step.
+* **Why Firestore?** We chose Google Cloud Firestore (specifically configured on a non-default database instance like `mithlond-services`) over traditional relational databases or memory stores like Redis.
+  * **Zero Operational Overhead:** Serverless and completely managed.
+  * **Scale-from-Zero Integration:** Matches the Cloud Run scaling profile.
+  * **Auto-Purging TTL Policy:** We can write documents with an `expires_at` timestamp and let Firestore's native TTL policy clean up expired authorization codes automatically, removing complex database maintenance.
+  * **Strict Isolation:** Gated behind GCP IAM roles (`roles/datastore.user`) bound strictly to our dedicated Cloud Run runner service account.
+
+### 2. SSRF-Safe Dynamic Client Validation
 Because client IDs are URLs (e.g. `https://client.com/metadata.json`) containing dynamic client metadata, your server must perform dynamic HTTP requests to resolve them. To prevent Server-Side Request Forgery (SSRF) sweeps, implement a custom connection dialer blocking loopbacks and private IP addresses:
 
 ```go
@@ -437,6 +445,85 @@ Wrap your SSE transport handler to fully protect active tool streaming:
 ```go
 mux.Handle("/sse", oauthMiddleware(sseHandler))
 ```
+
+### 3. User Authorization & Admin Tooling Patterns
+To move from "any authenticated user" to "authorized users with roles and scopes", you need a user directory.
+
+#### Gating JWT Issuance via Firestore
+When the backend verifies a user's Firebase identity token during the callback, it must perform a quick check against an `authorized_users` collection in Firestore:
+* **The Document:** Maps the user's unique Firebase `UID` to their allowed `roles` (e.g. `["user", "admin"]`) and `scopes` (e.g. `["lexicon:read", "audio:generate"]`).
+* **Active Status:** An `active` boolean flag allows admins to revoke a user's access instantly. If `active == false`, the server refuses to issue any new signed JWT access tokens during the exchange step.
+* **Performance Benefit:** Once the scoped JWT is issued (e.g. valid for 1 hour), the main MCP server remains **stateless**. During active tool calls, it only performs HMAC signature verification locally. It *never* queries Firestore during active SSE streams, maintaining sub-millisecond response times.
+
+#### Granular MCP Tool Access Control (ACL Gating)
+Once scopes are embedded into your signed JWTs, you can enforce them at the middleware level or gate specific handlers dynamically.
+
+Here is an example of an extensible HTTP gate middleware that intercepts incoming SSE client streams, decodes the claims, and verifies if the user possesses the required scopes:
+
+```go
+// Helper to gate specific handlers with scope checks
+func gate(requiredScope string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Extract token (already parsed/verified by base oauthMiddleware)
+		tokenStr := ""
+		authHeader := r.Header.Get("Authorization")
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			tokenStr = strings.TrimPrefix(authHeader, "Bearer ")
+		}
+
+		token, _ := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+			return jwtSigningKey, nil
+		})
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			http.Error(w, "Forbidden: invalid claims", http.StatusForbidden)
+			return
+		}
+
+		// Verify requested scope exists inside claims
+		if !authorizeScopes(claims, requiredScope) {
+			log.Printf("[Auth] Denied: user lacks scope '%s'", requiredScope)
+			w.WriteHeader(http.StatusForbidden)
+			fmt.Fprintln(w, "Forbidden: insufficient scopes")
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+```
+
+Now you can mount and protect your endpoints selectively:
+```go
+// Allow only authenticated users with 'lexicon:read' scope to connect to the SSE stream
+mux.Handle("/sse", gate("lexicon:read", secureHandler))
+```
+
+#### The Consent Single-Page Application (`mcp-auth.html`)
+The user consent page serves as the bridging mechanism between the desktop agent (`opencode`) and your authorization service. It parses query parameters matching standard OAuth 2.1 profiles:
+
+1. **Parameters Parsed from Query Stream:**
+   * `client_id`: The metadata URL of the client (e.g. `https://client.com/metadata.json`).
+   * `redirect_uri`: The local client loopback endpoint (e.g. `http://127.0.0.1:19876/mcp/oauth/callback`).
+   * `state`: A cryptographic random state to prevent CSRF.
+   * `code_challenge`: The PKCE S256 challenge.
+
+2. **The Flow on Login Success:**
+   * After the user authenticates with Firebase Auth, the frontend sends a `POST` request containing the Firebase `id_token` and parsed OAuth parameters to the server's `/api/oauth/authorize-callback` endpoint.
+   * On receiving a `200 OK` containing the transient `code`, the frontend performs a client redirect back to the local agent loopback address, completing the handshake:
+     ```javascript
+     const data = await response.json();
+     if (response.ok && data.code) {
+         window.location.href = `${redirectUri}?code=${encodeURIComponent(data.code)}&state=${encodeURIComponent(state)}`;
+     }
+     ```
+
+#### The "Admin CLI" Tooling Pattern
+Admin tasks (adding users, granting scopes, revoking access, or generating testing keys manually) must be handled securely.
+* **The Anti-Pattern (API Endpoint):** Creating a `/api/admin/users/grant` endpoint introduces significant security risks. If there is a bug in your route middleware, your entire user directory is exposed to the public internet.
+* **The Solution (Admin CLI):** We build a private, local CLI (like `eldamo-admin` under `cmd/eldamo-admin`) that runs only on administrator machines.
+  * **Secure Authentication:** Keys off of the administrator's local environment variables (e.g. GCP Application Default Credentials) or a strictly local `.env` configuration.
+  * **Reduced Attack Surface:** The main production server does not compile or expose any administrative user-modification endpoints.
 
 ---
 

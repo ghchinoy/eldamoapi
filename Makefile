@@ -2,19 +2,23 @@
 
 # Go configuration
 BINARY_NAME=eldamoapi
+ADMIN_NAME=eldamo-admin
 BIN_DIR=bin
 BINARY_PATH=$(BIN_DIR)/$(BINARY_NAME)
+ADMIN_PATH=$(BIN_DIR)/$(ADMIN_NAME)
 
 .PHONY: all build run test clean generate help
 
 all: generate test build
 
-## build: Build the statically linked Go binary to ./bin
+## build: Build the statically linked Go binaries to ./bin
 build:
-	@echo "Building binary to $(BINARY_PATH)..."
+	@echo "Building server binary to $(BINARY_PATH)..."
 	@mkdir -p $(BIN_DIR)
 	CGO_ENABLED=0 go build -ldflags="-s -w" -o $(BINARY_PATH) .
-	@echo "✓ Build complete: $(BINARY_PATH)"
+	@echo "Building admin binary to $(ADMIN_PATH)..."
+	CGO_ENABLED=0 go build -ldflags="-s -w" -o $(ADMIN_PATH) ./cmd/eldamo-admin/
+	@echo "✓ Build complete."
 
 ## run: Run the server locally in unprotected mode
 run: build
@@ -31,9 +35,13 @@ test:
 	@echo "Running all tests..."
 	go test -v ./...
 
+## admin: Run the admin tool interactively
+admin:
+	@go run ./cmd/eldamo-admin/ list
+
 ## token: Generate a 1-hour secure Access Token JWT for testing
 token:
-	@go run scripts/gen-token/main.go
+	@go run ./cmd/eldamo-admin/ token $(UID)
 
 ## generate: Run go generate to rebuild the embedded dataset (requires local raw XML files)
 generate:
@@ -51,4 +59,4 @@ help:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Targets:"
-	@fgrep -h "##" $(MAKEFILE_LIST) | fgrep -v fgrep | sed -e 's/\\$$//' | sed -e 's/##/ /'
+	@fgrep -h "##" $(MAKEFILE_LIST) | fgrep -v fgrep | sed -e 's/\8997//' | sed -e 's/##/ /'

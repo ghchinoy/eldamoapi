@@ -20,7 +20,7 @@ func TestSearchForWords(t *testing.T) {
 		t.Fatalf("Failed to init: %v", err)
 	}
 
-	targets := []string{"lúmë", "omentië", "omentie", "lume", "lumentielvo", "omentielvo", "-lva", "-lvë"}
+	targets := []string{"shaft", "spear", "arrow", "rod", "stem", "pole"}
 
 	fmt.Println("--- START SEARCH RESULTS ---")
 	for id, w := range idx.Words {

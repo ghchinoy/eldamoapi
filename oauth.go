@@ -134,13 +134,24 @@ func FetchAndValidateCIMD(ctx context.Context, clientIDUrl string) (*ClientIDMet
 		return nil, errors.New("client ID URL must use secure https scheme")
 	}
 
+	// Append a dynamic query parameter to completely bypass any GFE/outbound intermediate caches
+	cacheBusterURL := clientIDUrl
+	if strings.Contains(clientIDUrl, "?") {
+		cacheBusterURL = fmt.Sprintf("%s&_cb=%d", clientIDUrl, time.Now().UnixNano())
+	} else {
+		cacheBusterURL = fmt.Sprintf("%s?_cb=%d", clientIDUrl, time.Now().UnixNano())
+	}
+
 	client := SafeHTTPClient()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clientIDUrl, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cacheBusterURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "Eldamo-MCP-Server-Auth/1.0")
+	// Prevent any caching of metadata retrieval
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -179,6 +190,37 @@ type AuthCallbackPayload struct {
 	CodeChallenge string `json:"code_challenge,omitempty"`
 }
 
+// compareRedirectURIs checks if the requested URI matches an allowed URI.
+// For localhost/loopback redirect URIs, it compares them ignoring the port number (RFC 8252 compliant).
+func compareRedirectURIs(requested, allowed string) bool {
+	if requested == allowed {
+		return true
+	}
+
+	reqURL, err := url.Parse(requested)
+	if err != nil {
+		return false
+	}
+	allURL, err := url.Parse(allowed)
+	if err != nil {
+		return false
+	}
+
+	// If both are loopback, we compare scheme, path, and host, but ignore port
+	isReqLoopback := reqURL.Hostname() == "localhost" || reqURL.Hostname() == "127.0.0.1"
+	isAllLoopback := allURL.Hostname() == "localhost" || allURL.Hostname() == "127.0.0.1"
+
+	if isReqLoopback && isAllLoopback {
+		return reqURL.Scheme == allURL.Scheme &&
+			reqURL.Path == allURL.Path &&
+			(reqURL.Hostname() == allURL.Hostname() || 
+			 (reqURL.Hostname() == "localhost" && allURL.Hostname() == "127.0.0.1") ||
+			 (reqURL.Hostname() == "127.0.0.1" && allURL.Hostname() == "localhost"))
+	}
+
+	return false
+}
+
 // handleAuthCallback handles secure user authentication callback from the frontend SPA.
 func handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -201,6 +243,14 @@ func handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 1.5. Check if user is authorized in Firestore
+	user, err := getUser(r.Context(), decodedToken.UID)
+	if err != nil || !user.Active {
+		log.Printf("[OAuth] User '%s' not authorized or inactive", decodedToken.UID)
+		http.Error(w, "User not authorized", http.StatusForbidden)
+		return
+	}
+
 	userEmail, _ := decodedToken.Claims["email"].(string)
 	log.Printf("[OAuth] Authenticated session for user '%s' (%s)", decodedToken.UID, userEmail)
 
@@ -215,7 +265,7 @@ func handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// 3. Confirm requested Redirect URI is explicitly authorized in CIMD
 	isRedirectAllowed := false
 	for _, uri := range clientMeta.RedirectURIs {
-		if uri == payload.RedirectURI {
+		if compareRedirectURIs(payload.RedirectURI, uri) {
 			isRedirectAllowed = true
 			break
 		}
@@ -257,6 +307,34 @@ func generateRandomString(n int) string {
 	return base64.RawURLEncoding.EncodeToString(b)[:n]
 }
 
+// authorizeScopes is a simple helper to check if a required scope is present in the token's claims.
+func authorizeScopes(claims jwt.MapClaims, requiredScope string) bool {
+	scopes, ok := claims["scopes"].([]interface{})
+	if !ok {
+		return false
+	}
+	for _, s := range scopes {
+		if s == requiredScope {
+			return true
+		}
+	}
+	return false
+}
+
+// getUser retrieves a user document from 'authorized_users'.
+func getUser(ctx context.Context, uid string) (*User, error) {
+	doc, err := firestoreClient.Collection("authorized_users").Doc(uid).Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var user User
+	if err := doc.DataTo(&user); err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
 var jwtSigningKey = []byte(getJWTSigningKey())
 
 func getJWTSigningKey() string {
@@ -268,11 +346,12 @@ func getJWTSigningKey() string {
 }
 
 // generateJWT generates a signed stateless JWT for the given user, client, type, and expiration.
-func generateJWT(userUID, clientID, issuer string, duration time.Duration, tokenType string) (string, error) {
+func generateJWT(user *User, clientID, issuer string, duration time.Duration, tokenType string) (string, error) {
 	claims := jwt.MapClaims{
-		"sub":       userUID,
+		"sub":       user.UID,
 		"client_id": clientID,
-		"scope":     "mcp",
+		"scopes":    user.Scopes,
+		"roles":     user.Roles,
 		"iss":       issuer,
 		"type":      tokenType,
 		"iat":       time.Now().Unix(),
@@ -405,15 +484,22 @@ func handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 
 		userUID, _ := data["user_uid"].(string)
 
+		// Re-fetch user to get latest scopes/roles
+		user, err := getUser(r.Context(), userUID)
+		if err != nil || !user.Active {
+			oauthError(http.StatusForbidden, "invalid_grant", "User not authorized or inactive")
+			return
+		}
+
 		// 5. Generate Access Token & Refresh Token (JWTs)
-		accessToken, err := generateJWT(userUID, clientID, issuer, 1*time.Hour, "access")
+		accessToken, err := generateJWT(user, clientID, issuer, 1*time.Hour, "access")
 		if err != nil {
 			log.Printf("[OAuth] Access Token generation failed: %v", err)
 			oauthError(http.StatusInternalServerError, "server_error", "Failed to generate access token")
 			return
 		}
 
-		refreshToken, err := generateJWT(userUID, clientID, issuer, 30*24*time.Hour, "refresh")
+		refreshToken, err := generateJWT(user, clientID, issuer, 30*24*time.Hour, "refresh")
 		if err != nil {
 			log.Printf("[OAuth] Refresh Token generation failed: %v", err)
 			oauthError(http.StatusInternalServerError, "server_error", "Failed to generate refresh token")
@@ -426,7 +512,7 @@ func handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 			TokenType:    "Bearer",
 			ExpiresIn:    3600,
 			RefreshToken: refreshToken,
-			Scope:        "mcp",
+			Scope:        strings.Join(user.Scopes, " "),
 		})
 		return
 
@@ -458,14 +544,21 @@ func handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		userUID, _ := claims["sub"].(string)
 		clientID, _ := claims["client_id"].(string)
 
+		// Re-fetch user to get latest scopes/roles
+		user, err := getUser(r.Context(), userUID)
+		if err != nil || !user.Active {
+			oauthError(http.StatusForbidden, "invalid_grant", "User no longer authorized")
+			return
+		}
+
 		// Generate fresh Access Token and Refresh Token (rotating the refresh token is standard/safe)
-		accessToken, err := generateJWT(userUID, clientID, issuer, 1*time.Hour, "access")
+		accessToken, err := generateJWT(user, clientID, issuer, 1*time.Hour, "access")
 		if err != nil {
 			oauthError(http.StatusInternalServerError, "server_error", "Failed to generate access token")
 			return
 		}
 
-		newRefreshToken, err := generateJWT(userUID, clientID, issuer, 30*24*time.Hour, "refresh")
+		newRefreshToken, err := generateJWT(user, clientID, issuer, 30*24*time.Hour, "refresh")
 		if err != nil {
 			oauthError(http.StatusInternalServerError, "server_error", "Failed to generate refresh token")
 			return
@@ -477,7 +570,7 @@ func handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 			TokenType:    "Bearer",
 			ExpiresIn:    3600,
 			RefreshToken: newRefreshToken,
-			Scope:        "mcp",
+			Scope:        strings.Join(user.Scopes, " "),
 		})
 		return
 
@@ -515,8 +608,13 @@ func oauthMiddleware(next http.Handler) http.Handler {
 		}
 
 		if tokenStr == "" {
+			// Print headers for debugging purposes to see if the client sent the token in an unexpected way
+			log.Printf("[Auth] Debug Headers for %s %s: %+v", r.Method, r.URL.Path, r.Header)
+
 			log.Printf("[Auth] Rejected request %s %s: Missing access token", r.Method, r.URL.Path)
 			w.Header().Set("Content-Type", "application/json")
+			// Add standard WWW-Authenticate header to signal OAuth 2.1 authentication requirement
+			w.Header().Set("WWW-Authenticate", `Bearer realm="Mithlond", error="unauthorized", error_description="Missing access token"`)
 			w.WriteHeader(http.StatusUnauthorized)
 			_ = json.NewEncoder(w).Encode(map[string]string{
 				"error":             "unauthorized",

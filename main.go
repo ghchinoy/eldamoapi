@@ -12,6 +12,7 @@ import (
 
 	"github.com/ghchinoy/eldamoapi/data"
 	"github.com/ghchinoy/eldamoapi/index"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -312,6 +313,13 @@ func NewMcpMultiplexerHandler(getServer func(*http.Request) *mcp.Server) *McpMul
 }
 
 func (h *McpMultiplexerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Support selective SSE transport override (e.g. for Antigravity on Cloud Run / GFE buffering)
+	if strings.ToLower(r.Header.Get("X-Mcp-Force-Sse")) == "true" {
+		log.Printf("[Multiplexer] SSE force-override header detected. Routing strictly to SSEHandler: %s %s", r.Method, r.URL.RequestURI())
+		h.sseHandler.ServeHTTP(w, r)
+		return
+	}
+
 	hasSessionID := false
 	for k := range r.URL.Query() {
 		if strings.ToLower(k) == "sessionid" {
@@ -356,8 +364,9 @@ func handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
 	// Build OAuth 2.1 Server Metadata
 	metadata := map[string]any{
 		"issuer":                                baseURL,
-		"authorization_endpoint":                fmt.Sprintf("%s/mcp-auth", baseURL),
+		"authorization_endpoint":                "https://www.mithlond.com/mcp-auth",
 		"token_endpoint":                        fmt.Sprintf("%s/api/oauth/token", baseURL),
+		"client_id_metadata_document_supported": true,
 		"response_types_supported":              []string{"code"},
 		"grant_types_supported":                 []string{"authorization_code"},
 		"code_challenge_methods_supported":      []string{"S256"},
@@ -423,8 +432,34 @@ func main() {
 	// Create multiplexed handler to support both SSE and Streamable HTTP transports
 	handler := NewMcpMultiplexerHandler(func(*http.Request) *mcp.Server { return server })
 
-	// Wrap handler with logging/SSE headers middleware and OAuth Bearer token verification
+// Wrap handler with logging/SSE headers middleware and OAuth Bearer token verification
+	// We'll create a new middleware for scope enforcement later, for now we just keep the base auth.
 	secureHandler := oauthMiddleware(sseLoggingMiddleware(handler))
+
+	// Helper to gate specific handlers with scope checks
+	gate := func(requiredScope string, next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Extract claims from token (already verified by oauthMiddleware)
+			tokenStr := ""
+			authHeader := r.Header.Get("Authorization")
+			if strings.HasPrefix(authHeader, "Bearer ") {
+				tokenStr = strings.TrimPrefix(authHeader, "Bearer ")
+			}
+			// (Note: in a real implementation we'd cache the parsed token or claims)
+			token, _ := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+				return jwtSigningKey, nil
+			})
+			claims := token.Claims.(jwt.MapClaims)
+
+			if !authorizeScopes(claims, requiredScope) {
+				log.Printf("[Auth] Denied: user lacks scope '%s'", requiredScope)
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = fmt.Fprintln(w, "Forbidden: insufficient scopes")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 
 	// Support simple Liveness probe
 	mux := http.NewServeMux()
@@ -443,6 +478,9 @@ func main() {
 	mux.HandleFunc("/api/oauth/token", handleTokenExchange)
 
 	// Mount the SSE handler to /sse
+	// Example of gating:
+	// mux.Handle("/sse", gate("lexicon:read", secureHandler))
+	_ = gate
 	mux.Handle("/sse", secureHandler)
 
 	port := os.Getenv("PORT")

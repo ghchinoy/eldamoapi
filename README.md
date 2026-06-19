@@ -98,11 +98,14 @@ golangci-lint run
 
 ---
 
-## ⚡ opencode MCP Configuration
+## ⚡ Client Configurations
 
-To add your remote, secure Eldamo MCP server to **opencode**, point its remote multiplexer config to the Server-Sent Events `/sse` route on your Cloud Run service.
+To add your remote, secure Eldamo MCP server to your desktop agent, follow the configurations below based on your client of choice.
 
-### Project-Specific Config (Local)
+### 1. opencode
+Configure the server in your local or global `opencode.json` file:
+
+#### Project-Specific Config (Local)
 Create an **`opencode.json`** file in the root of your local workspace directory:
 
 ```json
@@ -112,13 +115,18 @@ Create an **`opencode.json`** file in the root of your local workspace directory
     "eldamo-remote": {
       "type": "remote",
       "url": "https://eldamo-mcp-server-308690897031.us-central1.run.app/sse",
-      "enabled": true
+      "enabled": true,
+      "oauth": {
+        "clientId": "https://www.mithlond.com/metadata.json",
+        "authorizationUrl": "https://www.mithlond.com/mcp-auth",
+        "tokenUrl": "https://eldamo-mcp-server-308690897031.us-central1.run.app/api/oauth/token"
+      }
     }
   }
 }
 ```
 
-### Global Config (Universal)
+#### Global Config (Universal)
 Add the server block to your global configuration file at **`~/.config/opencode/opencode.json`**:
 
 ```json
@@ -127,8 +135,13 @@ Add the server block to your global configuration file at **`~/.config/opencode/
   "mcp": {
     "eldamo-remote": {
       "type": "remote",
-      "url": "https://eldamo-agent.mithlond.com/sse",
-      "enabled": true
+      "url": "https://eldamo-mcp-server-308690897031.us-central1.run.app/sse",
+      "enabled": true,
+      "oauth": {
+        "clientId": "https://www.mithlond.com/metadata.json",
+        "authorizationUrl": "https://www.mithlond.com/mcp-auth",
+        "tokenUrl": "https://eldamo-mcp-server-308690897031.us-central1.run.app/api/oauth/token"
+      }
     }
   }
 }
@@ -136,6 +149,29 @@ Add the server block to your global configuration file at **`~/.config/opencode/
 
 > [!IMPORTANT]
 > Always quit and **restart opencode** after saving configuration changes for the remote MCP server to take effect.
+
+---
+
+### 2. Google Antigravity
+Configure the server in your global configuration file at **`~/.gemini/config/mcp_config.json`**:
+
+```json
+{
+  "mcpServers": {
+    "eldamo-remote": {
+      "serverUrl": "https://eldamo-mcp-server-308690897031.us-central1.run.app/sse",
+      "headers": {
+        "X-Mcp-Force-Sse": "true"
+      },
+      "oauth": {
+        "clientId": "https://www.mithlond.com/metadata.json",
+        "authorizationUrl": "https://www.mithlond.com/mcp-auth",
+        "tokenUrl": "https://eldamo-mcp-server-308690897031.us-central1.run.app/api/oauth/token"
+      }
+    }
+  }
+}
+```
 
 ---
 
