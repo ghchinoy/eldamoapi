@@ -21,6 +21,11 @@ run: build
 	@echo "Starting server locally..."
 	./$(BINARY_PATH)
 
+## run-dev: Run the server locally with authentication bypass
+run-dev: build
+	@echo "Starting server locally with AUTH_BYPASS=true..."
+	AUTH_BYPASS=true ./$(BINARY_PATH)
+
 ## test: Run all unit and integration tests
 test:
 	@echo "Running all tests..."

@@ -7,33 +7,17 @@ It features a secure, modern (2026-standard) **OAuth 2.1 Authentication Layer** 
 ---
 
 ## 📖 Table of Contents
-1. [System Architecture](#-system-architecture)
-2. [Exposed MCP Tools](#-exposed-mcp-tools)
-3. [Developer Agent Skills](#-developer-agent-skills)
-4. [OAuth 2.1 & CIMD Security Flow](#-oauth-21--cimd-security-flow)
-5. [Environment Variables & Configuration](#-environment-variables--configuration)
-6. [opencode MCP Configuration](#-opencode-mcp-configuration)
-7. [Local Development & Testing](#-local-development--testing)
+1. [Exposed MCP Tools](#-exposed-mcp-tools)
+2. [Developer Agent Skills](#-developer-agent-skills)
+3. [Local Development & Testing](#-local-development--testing)
+4. [opencode MCP Configuration](#-opencode-mcp-configuration)
+5. [OAuth 2.1 & CIMD Security Flow](#-oauth-21--cimd-security-flow)
+6. [System Architecture](#-system-architecture)
+7. [Environment Variables & Configuration](#-environment-variables--configuration)
 8. [Cloud Run Deployment](#-cloud-run-deployment)
 9. [Guide: How to Build Your Own Go MCP Server](docs/how-to-create-mcp-server-go.md)
 
 ---
-
-## 🏗️ System Architecture
-
-The Eldamo MCP Server is designed for speed, memory efficiency, and serverless scalability. It features a self-contained, zero-external-dependency, in-memory search engine.
-
-![Eldamo MCP Server Architecture](docs/architecture.webp)
-
-### Key Architectural Pillars:
-* **Gzip Embed In-Memory Engine (`data/`):** Local preprocessed JSON Lines dataset compressed to **`eldamo.jsonl.gz` (~4.5MB**, down from `24.8MB` raw) and embedded directly into the compiled Go binary using `go:embed`. On server startup, decompression executes under 20ms, allowing scale-from-zero on Google Cloud Run.
-* **Double-Index Search Engine (`index/`):**
-  * **Prefix Trie (Prefix Tree):** Maps all Tolkien vocabulary for fast, autocomplete-friendly word-spelling queries.
-  * **Inverted Keyword Index:** Tokenizes and normalizes glosses, definitions, neologisms, and historical linguistic notes, supporting complex matching.
-* **Ultra-Low Memory Footprint:** The entire compiled binary plus the complete decompressed index and tries consume only `~40-50MB` of RAM, enabling stable hosting on Cloud Run’s most economical resource tier.
-
----
-
 
 ## 🛠️ Exposed MCP Tools
 
@@ -77,6 +61,83 @@ This repository bundles specialized agent skills within the `skills/` directory,
 ### 3. `tolkien-translation`
 * **TL;DR:** Translates English phrases into Tolkien's main languages (Quenya, Sindarin, and Adûnaic). Analyzes sentence grammar, verb conjugations, adjective agreements, and case morphology, ensuring appropriate historical dialect selection.
 
+---
+
+## 💻 Local Development & Testing
+
+### 1. One-Line Installation (Prebuilt)
+For users who do not wish to clone the repository, install the latest binary automatically:
+```bash
+curl -sL https://raw.githubusercontent.com/ghchinoy/eldamo-server/main/scripts/install.sh | bash
+```
+
+### 2. Build and Run Local Server
+If you prefer to build from source, compile and run the server locally on port `8080` (utilizing your local `.env` configuration):
+```bash
+make run
+```
+
+### 3. Quick Start (No Auth)
+For rapid local testing without authentication setup, run the development build:
+```bash
+make run-dev
+```
+*(See `docs/DEVELOPMENT.md` for details on how this bypasses authentication.)*
+
+### 4. Run Test Suite
+Our comprehensive test suite validates database models, prefix/keyword indexers, SSRF dialer blocking, CIMD parser mocks, and cryptographic JWT verifications:
+```bash
+make test
+```
+
+### 5. Static Code Analysis (Linter)
+Validate code quality using golangci-lint:
+```bash
+golangci-lint run
+```
+
+---
+
+## ⚡ opencode MCP Configuration
+
+To add your remote, secure Eldamo MCP server to **opencode**, point its remote multiplexer config to the Server-Sent Events `/sse` route on your Cloud Run service.
+
+### Project-Specific Config (Local)
+Create an **`opencode.json`** file in the root of your local workspace directory:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "eldamo-remote": {
+      "type": "remote",
+      "url": "https://eldamo-mcp-server-308690897031.us-central1.run.app/sse",
+      "enabled": true
+    }
+  }
+}
+```
+
+### Global Config (Universal)
+Add the server block to your global configuration file at **`~/.config/opencode/opencode.json`**:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "eldamo-remote": {
+      "type": "remote",
+      "url": "https://eldamo-agent.mithlond.com/sse",
+      "enabled": true
+    }
+  }
+}
+```
+
+> [!IMPORTANT]
+> Always quit and **restart opencode** after saving configuration changes for the remote MCP server to take effect.
+
+---
 
 ## 🔒 OAuth 2.1 & CIMD Security Flow
 
@@ -125,7 +186,22 @@ sequenceDiagram
 2. **SSRF-Blocking Security:** The Go backend dialer resolves hostnames and blocks all private, local-link, loopback, and unspecified IPs in production to completely defeat Server-Side Request Forgery.
 3. **Stateless Scale-to-Zero Active Calls:** Access tokens are signed JWTs (`HS256`). During active MCP tool execution, signature validation is entirely local and CPU-bound—**never querying Firestore during active tool calls**, keeping response times in sub-milliseconds and GCP resource costs at zero!
 
+---
 
+## 🏗️ System Architecture
+
+The Eldamo MCP Server is designed for speed, memory efficiency, and serverless scalability. It features a self-contained, zero-external-dependency, in-memory search engine.
+
+![Eldamo MCP Server Architecture](docs/architecture.webp)
+
+### Key Architectural Pillars:
+* **Gzip Embed In-Memory Engine (`data/`):** Local preprocessed JSON Lines dataset compressed to **`eldamo.jsonl.gz` (~4.5MB**, down from `24.8MB` raw) and embedded directly into the compiled Go binary using `go:embed`. On server startup, decompression executes under 20ms, allowing scale-from-zero on Google Cloud Run.
+* **Double-Index Search Engine (`index/`):**
+  * **Prefix Trie (Prefix Tree):** Maps all Tolkien vocabulary for fast, autocomplete-friendly word-spelling queries.
+  * **Inverted Keyword Index:** Tokenizes and normalizes glosses, definitions, neologisms, and historical linguistic notes, supporting complex matching.
+* **Ultra-Low Memory Footprint:** The entire compiled binary plus the complete decompressed index and tries consume only `~40-50MB` of RAM, enabling stable hosting on Cloud Run’s most economical resource tier.
+
+---
 
 ## ⚙️ Environment Variables & Configuration
 
@@ -142,69 +218,6 @@ The backend uses the following environment variables, evaluated with fallback/pr
 | `FIREBASE_DATABASE` | Targets specific Firestore DB instance. | Sourced from `.env`; defaults to **`mithlond-services`** (NOT `(default)`). |
 | `JWT_SIGNING_KEY` | Cryptographic key to sign/verify stateless tokens. | Sourced from `.env`; **dynamically generated as a random 32-char hex string** on first deploy if missing. |
 | `ELDAMO_API_KEYS` | (Optional) Comma-separated API keys. | Set to restrict access without full OAuth. If empty, OAuth 2.1 is used exclusively. |
-
----
-
-## ⚡ opencode MCP Configuration
-
-To add your remote, secure Eldamo MCP server to **opencode**, point its remote multiplexer config to the Server-Sent Events `/sse` route on your Cloud Run service.
-
-### Project-Specific Config (Local)
-Create an **`opencode.json`** file in the root of your local workspace directory:
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "eldamo-remote": {
-      "type": "remote",
-      "url": "https://eldamo-mcp-server-308690897031.us-central1.run.app/sse",
-      "enabled": true
-    }
-  }
-}
-```
-
-### Global Config (Universal)
-Add the server block to your global configuration file at **`~/.config/opencode/opencode.json`**:
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "eldamo-remote": {
-      "type": "remote",
-      "url": "https://eldamo-mcp-server-308690897031.us-central1.run.app/sse",
-      "enabled": true
-    }
-  }
-}
-```
-
-> [!IMPORTANT]
-> Always quit and **restart opencode** after saving configuration changes for the remote MCP server to take effect.
-
----
-
-## 💻 Local Development & Testing
-
-### 1. Build and Run Local Server
-Compile and run the server locally on port `8080` (utilizing your local `.env` configuration):
-```bash
-make run
-```
-
-### 2. Run Test Suite
-Our comprehensive test suite validates database models, prefix/keyword indexers, SSRF dialer blocking, CIMD parser mocks, and cryptographic JWT verifications:
-```bash
-make test
-```
-
-### 3. Static Code Analysis (Linter)
-Validate code quality using golangci-lint:
-```bash
-golangci-lint run
-```
 
 ---
 
