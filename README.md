@@ -1,8 +1,8 @@
 # 🌟 Eldamo Agent Tools 🌟
 
-An high-performance **Model Context Protocol (MCP) Server** written in Go, providing AI agents with instant, structured, and deep linguistic access to Paul Strack's [Eldamo](http://eldamo.org/) Tolkien language lexicon compilation.
+An high-performance **Model Context Protocol (MCP) Server** written in Go, providing AI agents with immediate, structured, linguistic access to Paul Strack's [Eldamo](http://eldamo.org/) Tolkien language lexicon compilation.
 
-It features a fully secure, modern (2026-standard) **OAuth 2.1 Authentication Layer** utilizing **Client ID Metadata Documents (CIMD)**, **Firebase Auth**, and **GCP Cloud Run**.
+It features a secure, modern (2026-standard) **OAuth 2.1 Authentication Layer** utilizing **Client ID Metadata Documents (CIMD)**, **Firebase Auth**, and **GCP Cloud Run**.
 
 ---
 
@@ -21,23 +21,23 @@ It features a fully secure, modern (2026-standard) **OAuth 2.1 Authentication La
 
 ## 🏗️ System Architecture
 
-The Eldamo MCP Server is designed for maximum speed, memory efficiency, and serverless scalability. It features a fully self-contained, zero-external-dependency, in-memory search engine.
+The Eldamo MCP Server is designed for speed, memory efficiency, and serverless scalability. It features a self-contained, zero-external-dependency, in-memory search engine.
 
 ![Eldamo MCP Server Architecture](docs/architecture.webp)
 
 ### Key Architectural Pillars:
-* **Gzip Embed In-Memory Engine (`data/`):** Rather than bloating Git or requiring external storage buckets, the preprocessed JSON Lines dataset is compressed to **`eldamo.jsonl.gz` (~4.5MB**, down from `24.8MB` raw) and embedded directly into the compiled Go binary using `go:embed`. On server startup, decompression executes in **less than 20ms**, ensuring instantaneous scale-from-zero on Google Cloud Run.
+* **Gzip Embed In-Memory Engine (`data/`):** Local preprocessed JSON Lines dataset compressed to **`eldamo.jsonl.gz` (~4.5MB**, down from `24.8MB` raw) and embedded directly into the compiled Go binary using `go:embed`. On server startup, decompression executes under 20ms, allowing scale-from-zero on Google Cloud Run.
 * **Double-Index Search Engine (`index/`):**
-  * **Prefix Trie (Prefix Tree):** Maps all Tolkien vocabulary for ultra-fast, autocomplete-friendly word-spelling queries.
+  * **Prefix Trie (Prefix Tree):** Maps all Tolkien vocabulary for fast, autocomplete-friendly word-spelling queries.
   * **Inverted Keyword Index:** Tokenizes and normalizes glosses, definitions, neologisms, and historical linguistic notes, supporting complex matching.
-* **Ultra-Low Memory Footprint:** The entire compiled binary plus the complete decompressed index and tries consume only **`~40-50MB` of RAM**, enabling stable hosting on Cloud Run’s most economical resource tier.
+* **Ultra-Low Memory Footprint:** The entire compiled binary plus the complete decompressed index and tries consume only `~40-50MB` of RAM, enabling stable hosting on Cloud Run’s most economical resource tier.
 
 ---
 
 
 ## 🛠️ Exposed MCP Tools
 
-The server registers four highly specialized tools conforming to the Model Context Protocol specification:
+The server registers four specialized tools conforming to the Model Context Protocol specification:
 
 ### 1. `enquire_lexicon`
 Performs general-purpose Tolkien linguistic search.
@@ -66,13 +66,13 @@ Retrieves proper names (characters, places, stars, weapons, etc.) recursively de
 
 ## 🧠 Developer Agent Skills
 
-This repository bundles highly specialized agent skills within the `skills/` directory, helping developer agents solve complex, artistic, and precise Elvish linguistic tasks:
+This repository bundles specialized agent skills within the `skills/` directory, assisting developer agents to approach complex, artistic, and precise Elvish linguistic tasks:
 
 ### 1. `neologism-builder`
-* **TL;DR:** Guides the creation of authentic Neo-Elvish vocabulary. Offers a choice between **Practical (Functional)** compounding and **Poetic (Metaphorical)** concepts, evaluated via an advanced **100-point Quantitative Scoring Matrix** that balances strict phonetic constraints against acoustic iconicity and proper-noun lineage.
+* **TL;DR:** Guides the creation of Neo-Elvish vocabulary. Offers a choice between **Practical (Functional)** compounding and **Poetic (Metaphorical)** concepts, evaluated via a **100-point Quantitative Scoring Matrix** that balances strict phonetic constraints against acoustic iconicity and proper-noun lineage, derived in part from The Digital Tolkien Project's [arda](https://github.com/digitaltolkien/arda) pronunciation library.
 
 ### 2. `tolkien-name-generator`
-* **TL;DR:** Autonomously generates grammatically and historically correct Tolkien Elvish names for people, places, stars, or weapons. Compounds linguistic roots using proper Sandhi consonant merges and applies attested suffix paradigms.
+* **TL;DR:** Autonomously generates grammatically and historically-based Tolkien Elvish names for people, places, stars, or weapons. Compounds linguistic roots using proper Sandhi consonant merges and applies attested suffix paradigms.
 
 ### 3. `tolkien-translation`
 * **TL;DR:** Translates English phrases into Tolkien's main languages (Quenya, Sindarin, and Adûnaic). Analyzes sentence grammar, verb conjugations, adjective agreements, and case morphology, ensuring appropriate historical dialect selection.
