@@ -4,7 +4,7 @@
 set -e
 
 # Configuration
-REPO="username/eldamo-server"
+REPO="ghchinoy/eldamoapi"
 INSTALL_DIR="/usr/local/bin"
 
 # Get latest version
