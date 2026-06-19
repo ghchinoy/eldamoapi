@@ -68,7 +68,7 @@ This repository bundles specialized agent skills within the `skills/` directory,
 ### 1. One-Line Installation (Prebuilt)
 For users who do not wish to clone the repository, install the latest binary automatically:
 ```bash
-curl -sL https://raw.githubusercontent.com/ghchinoy/eldamo-server/main/scripts/install.sh | bash
+curl -sL https://raw.githubusercontent.com/ghchinoy/eldamoapi/main/scripts/install.sh | bash
 ```
 
 ### 2. Build and Run Local Server
