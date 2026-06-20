@@ -31,7 +31,7 @@ Choose your preferred coding assistant below and configure the remote MCP server
 3. Configure the fields:
    * **Name:** `eldamo-remote`
    * **Type:** `SSE`
-   * **URL:** `https://www.mithlond.com/sse`
+   * **URL:** `https://eldamo-mcp-server-308690897031.us-central1.run.app/sse`
 4. Under **Headers**, click **+ Add Header**:
    * **Key:** `Authorization`
    * **Value:** `Bearer your-personal-jwt-token` *(replace with your actual raw JWT)*
@@ -48,7 +48,7 @@ Append the following `eldamo-remote` block inside your `mcpServers` object:
   "mcpServers": {
     "eldamo-remote": {
       "type": "remote",
-      "url": "https://www.mithlond.com/sse",
+      "url": "https://eldamo-mcp-server-308690897031.us-central1.run.app/sse",
       "headers": {
         "Authorization": "Bearer your-personal-jwt-token"
       }
@@ -68,7 +68,7 @@ Using your manually generated token from the administrator:
   "mcp": {
     "eldamo-remote": {
       "type": "remote",
-      "url": "https://www.mithlond.com/sse",
+      "url": "https://eldamo-mcp-server-308690897031.us-central1.run.app/sse",
       "headers": {
         "Authorization": "Bearer {env:MITHLOND_ACCESS_TOKEN}"
       },
@@ -85,12 +85,12 @@ Let OpenCode handle the browser login flow and token lifecycle automatically:
   "mcp": {
     "eldamo-remote": {
       "type": "remote",
-      "url": "https://www.mithlond.com/sse",
+      "url": "https://eldamo-mcp-server-308690897031.us-central1.run.app/sse",
       "enabled": true,
       "oauth": {
         "clientId": "https://www.mithlond.com/metadata.json",
         "authorizationUrl": "https://www.mithlond.com/mcp-auth",
-        "tokenUrl": "https://www.mithlond.com/api/oauth/token"
+        "tokenUrl": "https://eldamo-mcp-server-308690897031.us-central1.run.app/api/oauth/token"
       }
     }
   }

@@ -171,9 +171,6 @@ For a deep technical dive into these patterns, our Firestore schemas, the loopba
 
 ---
 
-
----
-
 ## ⚙️ Environment Variables & Configuration
 
 Local configurations are managed in a **`.env`** file at the project root. This file is excluded from Git to protect sensitive credentials.
@@ -188,7 +185,6 @@ The backend uses the following environment variables, evaluated with fallback/pr
 | `FIREBASE_PROJECT_ID` | Project ID for Firebase Admin verification. | Matches `GCP_PROJECT`. Defaults to `testingproject-19c4c`. |
 | `FIREBASE_DATABASE` | Targets specific Firestore DB instance. | Sourced from `.env`; defaults to **`mithlond-services`** (NOT `(default)`). |
 | `JWT_SIGNING_KEY` | Cryptographic key to sign/verify stateless tokens. | Sourced from `.env`; **dynamically generated as a random 32-char hex string** on first deploy if missing. |
-| `ELDAMO_API_KEYS` | (Optional) Comma-separated API keys. | Set to restrict access without full OAuth. If empty, OAuth 2.1 is used exclusively. |
 
 ---
 
@@ -201,7 +197,4 @@ Deployment is fully automated using our secure shell pipeline. This pipeline loa
 ./scripts/deploy.sh
 ```
 
-### Deployment Blueprint & Security Hardening:
-* **IAM Least-Privilege Role Binding:** The script automatically checks for a dedicated, isolated service account `eldamo-mcp-runner`. It binds only the **`roles/datastore.user`** permission to allow reading and purging transient Firestore codes, leaving other cloud segments fully protected.
-* **Auto-Purging TTL Policy:** The database TTL is automatically configured via `gcloud` to purge expired codes from the `mcp_auth_codes` collection after 5 minutes, preventing manual maintenance tasks.
-* **Docker Containerization:** Google Cloud Build runs a multi-stage compilation in-cloud, compiling an optimized, statically linked Go binary running inside a minimal Scratch container.
+For detailed deployment blueprints and IAM safety configurations, see our [Architecture Documentation](docs/architecture.md).
