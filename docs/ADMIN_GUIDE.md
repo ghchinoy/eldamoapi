@@ -27,18 +27,19 @@ export FIREBASE_DATABASE="mithlond-services"
 
 ### 1. Authorizing New Users
 
-Colleagues who want access must first sign in once on the Mithlond portal at `https://www.mithlond.com/mcp-auth`. Once they've done that, you can authorize them using either of these two methods:
+Colleagues who want access can be authorized in two ways.
 
-#### Method A: By Email Address (Recommended)
-You can automatically lookup their Google/Firebase UID and register them in Firestore in a single command:
+#### Method A: Pre-Registration (Recommended for onboarding)
+You can pre-register a user before they even log in. Their record will stay inactive until they visit the Mithlond portal and authenticate.
+```bash
+./bin/eldamo-admin pre-register colleague@gmail.com
+```
+Once they log in at `https://www.mithlond.com/mcp-auth`, the server will automatically link their Firebase UID to this record and activate it.
+
+#### Method B: Direct Authorization (By Email)
+If they have already logged in at `https://www.mithlond.com/mcp-auth`, you can register them directly:
 ```bash
 ./bin/eldamo-admin add-email colleague@gmail.com
-```
-
-#### Method B: By Firebase UID
-If you already have their UID (or copy-pasted it from Cloud Run's auth rejection logs):
-```bash
-./bin/eldamo-admin add <UID> colleague@gmail.com
 ```
 
 ### 2. Inspecting User Directory
@@ -47,15 +48,17 @@ To list all currently registered users, their scopes, and active statuses:
 ./bin/eldamo-admin list
 ```
 
-### 3. Granting & Revoking Access (Instantly)
-You can instantly disable a user's ability to request new tokens, or re-enable an existing user:
-```bash
-# Temporarily suspend a user
-./bin/eldamo-admin revoke <UID>
+### 5. Managing Scopes
+You can grant or revoke specific granular scopes to a user's authorized record in real-time:
 
-# Restore their access
-./bin/eldamo-admin grant <UID>
+```bash
+# Grant an additional scope (e.g., audio:generate)
+./bin/eldamo-admin grant <UID> audio:generate
+
+# Revoke a scope
+./bin/eldamo-admin revoke-scope <UID> audio:generate
 ```
+*(Changes take effect upon the user's next token refresh or re-authentication.)*
 
 ### 4. Issuing Manual Handshake Tokens (Diagnostic)
 To bypass the browser-based OAuth dance entirely and generate a 1-hour secure JWT access token for testing local or remote clients:
