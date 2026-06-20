@@ -4,7 +4,7 @@ digraph G {
     rankdir=LR;
     nodesep=0.5;
     ranksep=0.8;
-    bgcolor="#0F172A"; // Sleek Slate 900 dark background
+    bgcolor="#F8FAFC"; // Sleek Light Mode Slate 50 background
     splines=true;
     overlap=false;
 
@@ -14,17 +14,17 @@ digraph G {
         fontsize=10;
         shape=box;
         style="filled,rounded";
-        fillcolor="#1E293B"; // Slate 800
-        fontcolor="#F8FAFC"; // Slate 50
-        color="#334155"; // Slate 700
+        fillcolor="#FFFFFF"; // White nodes
+        fontcolor="#0F172A"; // Slate 900
+        color="#CBD5E1"; // Slate 300 border
         penwidth=1.5;
     ];
 
     edge [
         fontname="Outfit,sans-serif";
         fontsize=9;
-        fontcolor="#94A3B8"; // Slate 400
-        color="#475569"; // Slate 600
+        fontcolor="#64748B"; // Slate 500
+        color="#94A3B8"; // Slate 400
         arrowsize=0.8;
         penwidth=1.2;
     ];
@@ -33,15 +33,15 @@ digraph G {
     subgraph cluster_prep {
         label="1. Dataset Pipeline";
         labeljust="l";
-        fontcolor="#38BDF8"; // Sky 400
+        fontcolor="#0284C7"; // Sky 700
         fontsize=11;
-        color="#1E293B";
+        color="#E2E8F0"; // Slate 200
         style="filled,dashed";
-        fillcolor="#0F172A";
+        fillcolor="#F0F9FF"; // Sky 50
 
-        xml_source [label="eldamo-data.xml\n(Raw Lexicon)", shape=note, fillcolor="#1E1B4B", color="#312E81", fontcolor="#E0E7FF"];
-        parse_tool [label="xml-to-jsonl\n(Go Utility)", shape=component, fillcolor="#0369A1", color="#075985", fontcolor="#F0F9FF"];
-        jsonl_out [label="eldamo.jsonl.gz\n(Gzipped Embed)", shape=note, fillcolor="#1E293B", color="#334155", fontcolor="#F8FAFC"];
+        xml_source [label="eldamo-data.xml\n(Raw Lexicon)", shape=note, fillcolor="#EEF2FF", color="#C7D2FE", fontcolor="#3730A3"];
+        parse_tool [label="xml-to-jsonl\n(Go Utility)", shape=component, fillcolor="#E0F2FE", color="#BAE6FD", fontcolor="#0369A1"];
+        jsonl_out [label="eldamo.jsonl.gz\n(Gzipped Embed)", shape=note, fillcolor="#F8FAFC", color="#E2E8F0", fontcolor="#0F172A"];
 
         xml_source -> parse_tool [label=" Stream parse"];
         parse_tool -> jsonl_out [label=" Compress"];
@@ -50,15 +50,15 @@ digraph G {
     subgraph cluster_frontend {
         label="2. Firebase Portal (mithlond-web)";
         labeljust="l";
-        fontcolor="#EC4899"; // Pink 500
+        fontcolor="#BE185D"; // Pink 700
         fontsize=11;
-        color="#1E293B";
+        color="#E2E8F0";
         style="filled,dashed";
-        fillcolor="#1F1625";
+        fillcolor="#FDF2F8"; // Pink 50
 
-        fb_hosting [label="Firebase Hosting\n(www.mithlond.com)", shape=component, fillcolor="#831843", color="#9D174D", fontcolor="#FDF2F8"];
-        auth_spa [label="mcp-auth.html\n(Login & Consent SPA)", shape=window, fillcolor="#831843", color="#9D174D", fontcolor="#FDF2F8"];
-        firebase_auth [label="Firebase Auth\n(Google Sign-In)", shape=ellipse, fillcolor="#831843", color="#9D174D", fontcolor="#FDF2F8"];
+        fb_hosting [label="Firebase Hosting\n(www.mithlond.com)", shape=component, fillcolor="#FCE7F3", color="#FBCFE8", fontcolor="#9D174D"];
+        auth_spa [label="mcp-auth.html\n(Login & Consent SPA)", shape=window, fillcolor="#FCE7F3", color="#FBCFE8", fontcolor="#9D174D"];
+        firebase_auth [label="Firebase Auth\n(Google Sign-In)", shape=ellipse, fillcolor="#FCE7F3", color="#FBCFE8", fontcolor="#9D174D"];
 
         fb_hosting -> auth_spa [label=" Serves route /mcp-auth"];
         auth_spa -> firebase_auth [label=" Authenticates user"];
@@ -67,17 +67,17 @@ digraph G {
     subgraph cluster_mcp_server {
         label="3. Cloud Run Go Backend";
         labeljust="l";
-        fontcolor="#34D399"; // Emerald 400
+        fontcolor="#047857"; // Emerald 700
         fontsize=11;
-        color="#1E293B";
+        color="#E2E8F0";
         style="filled,dashed";
-        fillcolor="#13231C";
+        fillcolor="#ECFDF5"; // Emerald 50
 
-        loader [label="Data Loader\n(Embed FS)", shape=box, fillcolor="#064E3B", color="#065F46", fontcolor="#ECFDF5"];
-        index [label="In-Memory Index\n(Trie & Inverted Index)", shape=box, fillcolor="#064E3B", color="#065F46", fontcolor="#ECFDF5"];
-        oauth_handlers [label="OAuth Handlers\n(Authorize & Token Exchange)", shape=component, fillcolor="#064E3B", color="#065F46", fontcolor="#ECFDF5"];
-        auth_middleware [label="oauthMiddleware\n(Bearer JWT validation)", shape=shield, fillcolor="#064E3B", color="#065F46", fontcolor="#ECFDF5"];
-        sse_server [label="SSE Multiplexer\n(/sse & POST /messages)", shape=ellipse, fillcolor="#064E3B", color="#065F46", fontcolor="#ECFDF5"];
+        loader [label="Data Loader\n(Embed FS)", shape=box, fillcolor="#D1FAE5", color="#A7F3D0", fontcolor="#065F46"];
+        index [label="In-Memory Index\n(Trie & Inverted Index)", shape=box, fillcolor="#D1FAE5", color="#A7F3D0", fontcolor="#065F46"];
+        oauth_handlers [label="OAuth Handlers\n(Authorize & Token Exchange)", shape=component, fillcolor="#D1FAE5", color="#A7F3D0", fontcolor="#065F46"];
+        auth_middleware [label="oauthMiddleware\n(Bearer JWT validation)", shape=shield, fillcolor="#D1FAE5", color="#A7F3D0", fontcolor="#065F46"];
+        sse_server [label="SSE Multiplexer\n(/sse & POST /messages)", shape=ellipse, fillcolor="#D1FAE5", color="#A7F3D0", fontcolor="#065F46"];
 
         loader -> index [label=" Load embedded"];
         index -> sse_server [label=" Serve queries"];
@@ -87,14 +87,14 @@ digraph G {
     subgraph cluster_storage {
         label="4. Cloud Firestore";
         labeljust="l";
-        fontcolor="#F59E0B"; // Amber 500
+        fontcolor="#B45309"; // Amber 700
         fontsize=11;
-        color="#1E293B";
+        color="#E2E8F0";
         style="filled,dashed";
-        fillcolor="#221A0F";
+        fillcolor="#FEF3C7"; // Amber 50
 
-        firestore_db [label="mcp_auth_codes Collection\n(mithlond-services database)", shape=cylinder, fillcolor="#78350F", color="#92400E", fontcolor="#FEF3C7"];
-        ttl_policy [label="5-min TTL Policy\n(Automatic expiry)", shape=component, fillcolor="#78350F", color="#92400E", fontcolor="#FEF3C7"];
+        firestore_db [label="authorized_users & mcp_auth_codes\n(mithlond-services database)", shape=cylinder, fillcolor="#FDE68A", color="#FCD34D", fontcolor="#78350F"];
+        ttl_policy [label="5-min TTL Policy\n(Automatic expiry)", shape=component, fillcolor="#FDE68A", color="#FCD34D", fontcolor="#78350F"];
 
         firestore_db -> ttl_policy [label=" Purges codes"];
     }
@@ -102,25 +102,25 @@ digraph G {
     subgraph cluster_client {
         label="5. MCP Clients";
         labeljust="l";
-        fontcolor="#A78BFA"; // Violet 400
+        fontcolor="#6D28D9"; // Violet 700
         fontsize=11;
-        color="#1E293B";
+        color="#E2E8F0";
         style="filled,dashed";
-        fillcolor="#1E1B4B";
+        fillcolor="#F5F3FF"; // Violet 50
 
-        client_domain [label="Client DNS Domain\n(metadata.json file)", shape=folder, fillcolor="#4C1D95", color="#5B21B6", fontcolor="#F5F3FF"];
-        agent [label="AI Coding Agent\n(e.g., Antigravity, Claude)", shape=actor, fillcolor="#4C1D95", color="#5B21B6", fontcolor="#F5F3FF"];
+        client_domain [label="Client DNS Domain\n(metadata.json file)", shape=folder, fillcolor="#EDE9FE", color="#DDD6FE", fontcolor="#4C1D95"];
+        agent [label="AI Coding Agent\n(e.g., opencode, Claude)", shape=actor, fillcolor="#EDE9FE", color="#DDD6FE", fontcolor="#4C1D95"];
 
         agent -> client_domain [label=" Owns & hosts CIMD"];
     }
 
     // Connections across sections
-    jsonl_out -> loader [label=" Embedded FS", style=dashed, color="#38BDF8"];
-    fb_hosting -> oauth_handlers [label=" Proxy rewrites\n/api/oauth/**", color="#EC4899"];
-    auth_spa -> oauth_handlers [label=" POST ID Token", color="#EC4899"];
-    oauth_handlers -> firestore_db [label=" Set/Delete transient\nAuth Code", color="#F59E0B"];
-    oauth_handlers -> client_domain [label=" Dynamic CIMD Fetch\n(SSRF-Safe GET)", color="#34D399"];
-    agent -> fb_hosting [label=" 1. Initiate Login Flow\n(Redirect to /mcp-auth)", color="#A78BFA"];
-    agent -> oauth_handlers [label=" 2. Exchange code\n(Trade for Access JWT)", color="#A78BFA"];
-    agent -> auth_middleware [label=" 3. Connect to tools\n(Authorization Bearer JWT)", color="#A78BFA"];
+    jsonl_out -> loader [label=" Embedded FS", style=dashed, color="#0284C7"];
+    fb_hosting -> oauth_handlers [label=" Proxy rewrites\n/api/oauth/**", color="#BE185D"];
+    auth_spa -> oauth_handlers [label=" POST ID Token", color="#BE185D"];
+    oauth_handlers -> firestore_db [label=" Manage User\n& Auth Codes", color="#B45309"];
+    oauth_handlers -> client_domain [label=" Dynamic CIMD Fetch\n(SSRF-Safe GET)", color="#047857"];
+    agent -> fb_hosting [label=" 1. Initiate Login Flow\n(Redirect to /mcp-auth)", color="#6D28D9"];
+    agent -> oauth_handlers [label=" 2. Exchange code\n(Trade for Access JWT)", color="#6D28D9"];
+    agent -> auth_middleware [label=" 3. Connect to tools\n(Authorization Bearer JWT)", color="#6D28D9"];
 }
