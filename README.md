@@ -102,7 +102,10 @@ golangci-lint run
 
 ## ⚡ Client Configurations
 
-To add your remote, secure Eldamo MCP server to your desktop agent, follow the configurations below based on your client of choice.
+To add your remote, secure Eldamo MCP server to your desktop agent, follow the configurations below. 
+
+> [!NOTE]
+> Detailed information regarding the OAuth 2.1 & CIMD security flow, and our Firestore-based access control, can be found in our [Architecture Documentation](docs/architecture.md).
 
 ### 1. opencode
 Configure the server in your local or global `opencode.json` file:
@@ -151,57 +154,6 @@ Add the server block to your global configuration file at **`~/.config/opencode/
 
 > [!IMPORTANT]
 > Always quit and **restart opencode** after saving configuration changes for the remote MCP server to take effect.
-
----
-
-## 🔒 OAuth 2.1 & CIMD Security Flow
-
-This server implements a secure, zero-database-registration authorization pipeline based on the IETF draft **Client ID Metadata Documents (CIMD)**:
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant Client as MCP Client<br/>(e.g., Antigravity)
-    participant FB_Host as Firebase Hosting<br/>(mithlond-web SPA)
-    participant CR_Go as Cloud Run Backend<br/>(Go Auth Service)
-    participant Client_Host as Client Domain<br/>(Hosts CIMD)
-    participant FB_Auth as Firebase Auth<br/>(Identity Provider)
-    participant Firestore as Cloud Firestore
-
-    Client->>CR_Go: GET /.well-known/oauth-authorization-server
-    CR_Go-->>Client: Return server metadata (CIMD supported)
-
-    Client->>User: Redirect browser to Authorization Page
-    User->>FB_Host: Load /mcp-auth page
-    User->>FB_Auth: Sign in via Google / Email
-    FB_Auth-->>User: Return User ID Token
-    User->>FB_Host: Extract ID Token
-
-    FB_Host->>CR_Go: POST /api/oauth/authorize-callback<br/>{id_token, client_id, redirect_uri}
-    CR_Go->>FB_Auth: Verify Firebase ID Token
-    CR_Go->>Client_Host: Secure GET https://client.com/metadata.json (SSRF-Safe)
-    CR_Go->>CR_Go: Validate Metadata parameters
-    CR_Go->>Firestore: Store transient 5-min authorization code
-    CR_Go-->>FB_Host: Return Auth Code
-    FB_Host->>User: Redirect browser to Client's callback
-
-    Client->>CR_Go: POST /api/oauth/token<br/>{grant_type=authorization_code, code, client_id, redirect_uri, code_verifier}
-    CR_Go->>Firestore: Validate & Delete Auth Code (One-time use)
-    CR_Go->>CR_Go: Verify PKCE S256
-    CR_Go-->>Client: Return stateless signed JWT Access & Refresh Tokens
-
-    Client->>CR_Go: POST /sse (Authorization: Bearer <JWT>)
-    CR_Go->>CR_Go: Validate local JWT signature & scopes (No DB hit!)
-    CR_Go-->>Client: Stream tool execution results
-```
-
-### Architectural Benefits:
-1. **Zero Registration Spam:** We do not expose a public registration endpoint. Clients host their own metadata JSON file (`client_id` URL). Trust is anchored on DNS ownership and HTTPS transport.
-2. **SSRF-Blocking Security:** The Go backend dialer resolves hostnames and blocks all private, local-link, loopback, and unspecified IPs in production to completely defeat Server-Side Request Forgery.
-3. **Stateless Scale-to-Zero Active Calls:** Access tokens are signed JWTs (`HS256`). During active MCP tool execution, signature validation is entirely local and CPU-bound—**never querying Firestore during active tool calls**, keeping response times in sub-milliseconds and GCP resource costs at zero!
-
----
 
 ## 🏗️ System Architecture
 
