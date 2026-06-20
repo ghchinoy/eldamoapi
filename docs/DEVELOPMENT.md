@@ -23,7 +23,6 @@ The backend evaluates the following variables on startup:
 | `JWT_SIGNING_KEY` | Cryptographic key to sign/verify stateless tokens. | Sourced from `.env`; **dynamically generated as a random 32-char hex string** on first deploy if missing. |
 | `ELVISH_TTS_URL` | (Optional) TTS Synthesizer URL. | Set to enable the conditional `render_elvish_audio` tool. |
 
----
 
 ## 💻 Local Compilation & Development
 
@@ -61,7 +60,6 @@ The `render_elvish_audio` MCP tool is conditionally enabled. To use it, you must
    ```
 The `render_elvish_audio` tool will be automatically detected and available to `opencode`.
 
----
 
 ## ⚡ Local Client Configurations
 
@@ -113,7 +111,6 @@ Validate code quality using golangci-lint. Maintain a strict **0 issues** bar be
 golangci-lint run
 ```
 
----
 
 ## 🚀 Release & Versioning Procedures
 

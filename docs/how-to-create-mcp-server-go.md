@@ -20,7 +20,6 @@ Go is an exceptional language for building MCP servers:
 8. [Securing with OAuth 2.1 & Client ID Metadata Documents (CIMD)](#8-securing-with-oauth-21--client-id-metadata-documents-cimd)
 9. [Appendix: Complete Production Code Samples](#9-appendix-complete-production-code-samples)
 
----
 
 ## 1. Prerequisites & Project Setup
 
@@ -36,7 +35,6 @@ go mod init github.com/username/my-mcp-server
 go get github.com/modelcontextprotocol/go-sdk@v1.6.1
 ```
 
----
 
 ## 2. Designing Your First Tool
 
@@ -54,7 +52,6 @@ The tool handler must conform to the following signature:
 func yourToolHandler(ctx context.Context, req *mcp.CallToolRequest, args YourArgsStruct) (*mcp.CallToolResult, any, error)
 ```
 
----
 
 ## 3. Building the MCP Server
 
@@ -74,7 +71,6 @@ mcp.AddTool(server, &mcp.Tool{
 }, enquireLexiconHandler)
 ```
 
----
 
 ## 4. Implementing the Multiplexer (SSE + Streamable HTTP)
 
@@ -120,7 +116,6 @@ func (h *McpMultiplexerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 }
 ```
 
----
 
 ## 5. Complete Executable Server Example
 
@@ -248,7 +243,6 @@ func main() {
 }
 ```
 
----
 
 ## 6. Testing Locally
 
@@ -329,7 +323,6 @@ Run tests with:
 go test -v ./...
 ```
 
----
 
 ## 7. Deploying to Google Cloud Run
 
@@ -356,7 +349,6 @@ Do **NOT** set `Stateless: true` in your `StreamableHTTPOptions` if your clients
 * Setting `Stateless: true` forces the Go SDK to reject long-running stream connections (`GET /sse` with session headers) with a **`405 Method Not Allowed`** code.
 * Rely on **Session Affinity** (Rule 1) to handle the routing of stateful sessions instead of disabling state entirely.
 
----
 
 ## 8. Securing with OAuth 2.1 & Client ID Metadata Documents (CIMD)
 

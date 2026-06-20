@@ -21,7 +21,6 @@ It features a secure, modern (2026-standard) **OAuth 2.1 Authentication Layer** 
 8. [Guide: How to Build Your Own Go MCP Server](docs/how-to-create-mcp-server-go.md)
 9. [Contributing & Development](docs/DEVELOPMENT.md)
 
----
 
 ## 🛠️ Exposed MCP Tools
 
@@ -65,7 +64,6 @@ This repository bundles specialized linguistic agent skills within the `skills/`
 ### 3. `tolkien-translation`
 * **TL;DR:** Translates English phrases into Tolkien's main languages (Quenya, Sindarin, and Adûnaic). Analyzes sentence grammar, verb conjugations, adjective agreements, and case morphology, ensuring appropriate historical dialect selection.
 
----
 
 ## 💾 One-Line Installation (Prebuilt Binary)
 
@@ -109,7 +107,6 @@ Add this to your `claude_desktop_config.json` file:
 }
 ```
 
----
 
 ## ⚡ Client Configurations
 
@@ -186,7 +183,6 @@ The Eldamo MCP Server is engineered for zero-dependency portability and stateles
 
 For a deep technical dive into these patterns, our Firestore schemas, the loopback-agnostic callback matching (RFC 8252), or our infrastructure hardening blueprints, see the [Detailed Architecture & Design Notes](docs/architecture.md).
 
----
 
 ## ⚙️ Environment Variables & Configuration
 
@@ -203,7 +199,6 @@ The backend uses the following environment variables, evaluated with fallback/pr
 | `FIREBASE_DATABASE` | Targets specific Firestore DB instance. | Sourced from `.env`; defaults to **`mithlond-services`** (NOT `(default)`). |
 | `JWT_SIGNING_KEY` | Cryptographic key to sign/verify stateless tokens. | Sourced from `.env`; **dynamically generated as a random 32-char hex string** on first deploy if missing. |
 
----
 
 ## 🚀 Cloud Run Deployment
 
@@ -216,7 +211,6 @@ Deployment is fully automated using our secure shell pipeline. This pipeline loa
 
 For detailed deployment blueprints and IAM safety configurations, see our [Architecture Documentation](docs/architecture.md).
 
----
 
 ## 🤝 Contributing & Development
 

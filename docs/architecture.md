@@ -1,6 +1,6 @@
 # Eldamo MCP Server: Architecture and Design Notes
 
-This document provides a comprehensive overview of the design, dataset preparation, and deployment strategy for hosting the Eldamo lexicon dataset as a secure, authenticated Model Context Protocol (MCP) Server on Google Cloud Run.
+This document provides an overview of the design, dataset preparation, and deployment strategy for hosting the Eldamo lexicon dataset as a secure, authenticated Model Context Protocol (MCP) Server on Google Cloud Run.
 
 
 ## Architecture Diagram
@@ -19,17 +19,17 @@ The system is split into three main parts:
 ## 2. Dataset Preparation & Storage Strategy
 
 ### Current Assets
-- Raw data: Located in `~/projects/eldamo-group/eldamo/src/data/eldamo-data.xml`.
+- Raw data: From [eldamo](https://github.com/pfstrack/eldamo), located in `~/projects/eldamo-group/eldamo/src/data/eldamo-data.xml`.
 - Parser utility: Located in `~/projects/eldamo-group/eldamo-parse/xml-to-jsonl`. It compiles the XML lexicon of 22,000+ entries into `eldamo.jsonl` (24MB) in sub-second time.
 
-### Storage Decision: Embedded (`go:embed`) [SELECTED]
+### Storage Decision: Embedded (`go:embed`)
 To serve queries with the lowest possible latency and resource overhead, we have explicitly selected **Go Embedding (`go:embed`)** to load the preprocessed `eldamo.jsonl` file.
 
 #### Rationale and Tradeoffs:
-- **Lightning-Fast Startup (Sub-100ms):** When Cloud Run scales from zero instances to one, the Go binary boots and parses the entire 24.8MB flat JSONL file in less than 100ms.
-- **Minimal RAM Footprint (~40–50MB):** Holds all 22,000 parsed words, a prefix search trie, and an inverted keyword index in memory. This allows us to use the lowest Cloud Run tier (256MB RAM / 1 vCPU), making hosting incredibly inexpensive.
+- **Fast Startup (Sub-100ms):** When Cloud Run scales from zero instances to one, the Go binary boots and parses the entire 24.8MB flat JSONL file in less than 100ms.
+- **Minimal RAM Footprint (~40–50MB):** Holds all 22,000 parsed words, a prefix search trie, and an inverted keyword index in memory. This allows us to use the lowest Cloud Run tier (256MB RAM / 1 vCPU), making hosting inexpensive.
 - **Zero External Network Dependencies:** Unlike a GCS-fetching model, the server does not need to perform any HTTP/GCS requests on startup, removing points of failure and networking overhead.
-- **Stable Lexicon:** Given that the Eldamo lexicon is relatively stable and updated on a regular/periodic basis (rather than hourly), the requirement to rebuild and redeploy the container when data changes is an acceptable, minor tradeoff.
+- **Stable Lexicon:** Given that the Eldamo lexicon is relatively stable and updated on a regular/periodic basis, the requirement to rebuild and redeploy the container when data changes is an acceptable tradeoff.
 
 
 ## 3. Go MCP Server Implementation Design
@@ -48,9 +48,9 @@ The server publishes three specialized tools:
 - `get_word_details`: Fetches full morphological detail, notes, and references for a specific page-ID.
 - `get_derivations`: Lists words derived from this word, or the roots this word derived from.
 
----
 
-## 4. Secure OAuth 2.1 & CIMD Authentication [SELECTED]
+
+## 4. Secure OAuth 2.1 & CIMD Authentication
 
 To allow decentralized, safe, and frictionless access for third-party AI agents without requiring manual API key distribution or exposing our database to registration spam, we utilize **OAuth 2.1 with Client ID Metadata Documents (CIMD)**:
 
@@ -79,7 +79,6 @@ Beyond simple authentication, we implement granular control:
 - Stores ONLY temporary 5-minute authorization codes during the token exchange handshake.
 - A **Time-To-Live (TTL)** policy automatically purges codes from Firestore immediately upon expiration.
 
----
 
 ## 5. Administrative Tooling Pattern
 

@@ -19,7 +19,6 @@ Once you have your token string, save it as an environment variable in your term
 export MITHLOND_ACCESS_TOKEN="your-personal-jwt-token"
 ```
 
----
 
 ## 2. Configure Your AI Client
 
@@ -97,7 +96,6 @@ Let OpenCode handle the browser login flow and token lifecycle automatically:
 }
 ```
 
----
 
 ## 3. Troubleshooting Guide
 
@@ -128,7 +126,6 @@ If your assistant is having issues establishing a connection, check the common t
   * Ensure you don't have a redundant parent `opencode.json` overriding your local configuration with stale headers (like static environment variables).
   * Run `opencode mcp auth logout eldamo-remote` and clear the local cache: `rm -rf ~/.cache/opencode/*` before authenticating again.
 
----
 
 ## 4. Verify Your Connection
 

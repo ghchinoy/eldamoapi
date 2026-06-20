@@ -12,8 +12,6 @@ Our security pipeline separates **Identity** (who the user is, verified securely
 2.  **Authorization Check:** The backend exchanges the Google ID token and performs a Firestore lookup on the `authorized_users` collection.
 3.  **Scoped JWT Issuance:** If authorized and active, the backend signs a custom, stateless JSON Web Token (JWT) containing the user's allowed scopes, roles, and expiration.
 
----
-
 ## 🛠️ Admin CLI Tooling (`eldamo-admin`)
 
 We provide a compiled command-line utility located in `./bin/eldamo-admin` (and run via `make`) to safely manage authorized users, roles, and scopes without exposing admin endpoints to the public internet.
@@ -70,7 +68,6 @@ make token UID=<USER-UID>
 ./bin/eldamo-admin token <USER-UID>
 ```
 
----
 
 ## 🔒 Token Scopes & Permissions
 

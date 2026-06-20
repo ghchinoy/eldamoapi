@@ -28,7 +28,6 @@ Use the integrated TTS service to hear your creations.
 *   **Refinement:** If the output is too fast, adjust the speed:
     *   *Action:* `@eldamo-remote render_elvish_audio(text="[Your Sentence]", voice="emma", speed=0.7)`
 
----
 
 ## 💡 Critical User Journeys (CUJs)
 
