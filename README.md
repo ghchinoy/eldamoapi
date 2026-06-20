@@ -116,6 +116,9 @@ Create an **`opencode.json`** file in the root of your local workspace directory
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
+  "skills": {
+    "paths": ["skills"]
+  },
   "mcp": {
     "eldamo-remote": {
       "type": "remote",
@@ -130,6 +133,9 @@ Create an **`opencode.json`** file in the root of your local workspace directory
   }
 }
 ```
+
+> [!TIP]
+> The `"skills": { "paths": ["skills"] }` block is **essential** to enable OpenCode to discover and load the bundle of **Linguistic Agent Skills** (like the `neologism-builder`) included in the project directory.
 
 #### Global Config (Universal)
 Add the server block to your global configuration file at **`~/.config/opencode/opencode.json`**:
