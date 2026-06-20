@@ -67,11 +67,48 @@ This repository bundles specialized linguistic agent skills within the `skills/`
 
 ## 💻 Local Development & Testing
 
-### 1. One-Line Installation (Prebuilt)
-For users who do not wish to clone the repository, install the latest binary automatically:
+### 1. One-Line Installation (Prebuilt Binary)
+For users who do not wish to clone the repository, install the latest binary automatically to `/usr/local/bin/eldamoapi`:
 ```bash
 curl -sL https://raw.githubusercontent.com/ghchinoy/eldamoapi/main/scripts/install.sh | bash
 ```
+
+Once installed, you can configure your local agent to run this binary as a local MCP server.
+
+#### A. Configure for opencode
+Add this to your global `~/.config/opencode/opencode.json` or local workspace `opencode.json`:
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "eldamo-local": {
+      "type": "local",
+      "command": ["eldamoapi"],
+      "environment": {
+        "AUTH_BYPASS": "true"
+      },
+      "enabled": true
+    }
+  }
+}
+```
+
+#### B. Configure for Claude Desktop
+Add this to your `claude_desktop_config.json` file:
+```json
+{
+  "mcpServers": {
+    "eldamo-local": {
+      "command": "eldamoapi",
+      "env": {
+        "AUTH_BYPASS": "true"
+      }
+    }
+  }
+}
+```
+
+---
 
 ### 2. Build and Run Local Server
 If you prefer to build from source, compile and run the server locally on port `8080` (utilizing your local `.env` configuration):
