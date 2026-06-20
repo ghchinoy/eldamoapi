@@ -2,6 +2,8 @@
 
 An high-performance **Model Context Protocol (MCP) Server** written in Go, providing AI agents with immediate, structured, linguistic access to Paul Strack's [Eldamo](http://eldamo.org/) Tolkien language lexicon compilation.
 
+The server is designed for high portability and serverless agility: it can be **run completely locally as a native desktop service** via our prebuilt binaries, or deployed securely as a multi-user, OAuth-gated **remote server** on Google Cloud Run.
+
 This repository bundles both the **MCP Server** itself and a set of **Linguistic Agent Skills**, which provide AI agents with advanced tools for Tolkien linguistic tasks (translation, name generation, and neologism composition).
 
 It features a secure, modern (2026-standard) **OAuth 2.1 Authentication Layer** utilizing **Client ID Metadata Documents (CIMD)**, **Firebase Auth**, and **GCP Cloud Run**.
