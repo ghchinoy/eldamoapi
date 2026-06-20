@@ -2,6 +2,8 @@
 
 An high-performance **Model Context Protocol (MCP) Server** written in Go, providing AI agents with immediate, structured, linguistic access to Paul Strack's [Eldamo](http://eldamo.org/) Tolkien language lexicon compilation.
 
+This repository bundles both the **MCP Server** itself and a set of **Linguistic Agent Skills**, which provide AI agents with advanced tools for Tolkien linguistic tasks (translation, name generation, and neologism composition).
+
 It features a secure, modern (2026-standard) **OAuth 2.1 Authentication Layer** utilizing **Client ID Metadata Documents (CIMD)**, **Firebase Auth**, and **GCP Cloud Run**.
 
 ---
@@ -48,9 +50,9 @@ Retrieves proper names (characters, places, stars, weapons, etc.) recursively de
   * `id` (string, required): The unique Eldamo `page-id` of the root or base word (e.g., `"2071154627"`).
 
 
-## 🧠 Developer Agent Skills
+## 🧠 Linguistic Agent Skills
 
-This repository bundles specialized agent skills within the `skills/` directory, assisting developer agents to approach complex, artistic, and precise Elvish linguistic tasks:
+This repository bundles specialized linguistic agent skills within the `skills/` directory, assisting agents to approach complex, artistic, and precise Elvish linguistic tasks:
 
 ### 1. `neologism-builder`
 * **TL;DR:** Guides the creation of Neo-Elvish vocabulary. Offers a choice between **Practical (Functional)** compounding and **Poetic (Metaphorical)** concepts, evaluated via a **100-point Quantitative Scoring Matrix** that balances strict phonetic constraints against acoustic iconicity and proper-noun lineage, derived in part from The Digital Tolkien Project's [arda](https://github.com/digitaltolkien/arda) pronunciation library.
