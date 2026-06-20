@@ -245,6 +245,24 @@ func handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	// 1.5. Check if user is authorized in Firestore
 	user, err := getUser(r.Context(), decodedToken.UID)
+	
+	// Pre-registration logic: If user not found, check if email is pre-registered
+	if err != nil {
+		// Attempt to find by email
+		query := firestoreClient.Collection("authorized_users").Where("email", "==", decodedToken.Claims["email"]).Where("uid", "==", "").Documents(r.Context())
+		doc, err := query.Next()
+		if err == nil {
+			// Found a pre-registered email, link the UID!
+			_, err = doc.Ref.Update(r.Context(), []firestore.Update{
+				{Path: "uid", Value: decodedToken.UID},
+				{Path: "active", Value: true},
+			})
+			if err == nil {
+				user, err = getUser(r.Context(), decodedToken.UID)
+			}
+		}
+	}
+
 	if err != nil || !user.Active {
 		log.Printf("[OAuth] User '%s' not authorized or inactive", decodedToken.UID)
 		http.Error(w, "User not authorized", http.StatusForbidden)

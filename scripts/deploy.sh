@@ -33,9 +33,6 @@ GCP_REGION=$DEFAULT_REGION
 SERVICE_NAME=$DEFAULT_SERVICE_NAME
 
 # Eldamo Security Configuration
-# Comma-separated list of allowed API keys for MCP server access
-# Leave empty to run in UNPROTECTED mode
-ELDAMO_API_KEYS=
 # URL for the Elvish TTS Pronunciation Service
 ELVISH_TTS_URL=
 
@@ -48,7 +45,6 @@ EOF
     GCP_PROJECT="$DEFAULT_GCP_PROJECT"
     GCP_REGION="$DEFAULT_REGION"
     SERVICE_NAME="$DEFAULT_SERVICE_NAME"
-    ELDAMO_API_KEYS=""
 fi
 
 # Ensure OAuth defaults are set if not defined in sourced .env
@@ -102,10 +98,6 @@ gcloud projects add-iam-policy-binding "$GCP_PROJECT" \
 # Build and Deploy
 # -----------------------------------------------------------------------------
 ENV_VARS="FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID,FIREBASE_DATABASE=$FIREBASE_DATABASE,JWT_SIGNING_KEY=$JWT_SIGNING_KEY,CACHE_BUSTER=$(date +%s)"
-if [ -n "${ELDAMO_API_KEYS:-}" ]; then
-    ENV_VARS="$ENV_VARS,ELDAMO_API_KEYS=$ELDAMO_API_KEYS"
-    echo "-> Configured with API key protection."
-fi
 if [ -n "${ELVISH_TTS_URL:-}" ]; then
     ENV_VARS="$ENV_VARS,ELVISH_TTS_URL=$ELVISH_TTS_URL"
     echo "-> Configured with TTS Service URL: $ELVISH_TTS_URL"
