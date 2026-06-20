@@ -10,14 +10,13 @@ It features a secure, modern (2026-standard) **OAuth 2.1 Authentication Layer** 
 
 ## 📖 Table of Contents
 1. [Exposed MCP Tools](#-exposed-mcp-tools)
-2. [Developer Agent Skills](#-developer-agent-skills)
+2. [Linguistic Agent Skills](#-linguistic-agent-skills)
 3. [Local Development & Testing](#-local-development--testing)
-4. [opencode MCP Configuration](#-opencode-mcp-configuration)
-5. [OAuth 2.1 & CIMD Security Flow](#-oauth-21--cimd-security-flow)
-6. [System Architecture](#-system-architecture)
-7. [Environment Variables & Configuration](#-environment-variables--configuration)
-8. [Cloud Run Deployment](#-cloud-run-deployment)
-9. [Guide: How to Build Your Own Go MCP Server](docs/how-to-create-mcp-server-go.md)
+4. [Client Configurations](#-client-configurations)
+5. [System Architecture & Deployment Overview](#-system-architecture--deployment-overview)
+6. [Environment Variables & Configuration](#-environment-variables--configuration)
+7. [Cloud Run Deployment](#-cloud-run-deployment)
+8. [Guide: How to Build Your Own Go MCP Server](docs/how-to-create-mcp-server-go.md)
 
 ---
 
@@ -111,12 +110,16 @@ Add this to your `claude_desktop_config.json` file:
 ---
 
 ### 2. Build and Run Local Server
-If you prefer to build from source, compile and run the server locally on port `8080` (utilizing your local `.env` configuration):
+If you prefer to build from source, compile and run the server locally on port `8080`. 
+
+**Prerequisite:** Because the server initializes Firebase and Firestore clients on startup, you **must** configure your local environment variables in a `.env` file first (see **Section 6: Environment Variables & Configuration** below for detailed guidance, or simply copy `.env.example` if available).
+
+To compile and start the server:
 ```bash
 make run
 ```
 
-### 3. Quick Start (No Auth)
+### 3. Quick Start (No Auth / Developer Bypass)
 For rapid local testing without authentication setup, run the development build:
 ```bash
 make run-dev
