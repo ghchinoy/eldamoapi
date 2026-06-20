@@ -86,20 +86,8 @@ Beyond simple authentication, we implement granular control:
 We implement administrative operations (adding/granting/revoking users) via a private, compiled CLI utility (`eldamo-admin`) rather than exposed API endpoints.
 - **Why?** Exposing admin functions via HTTP endpoints increases the attack surface significantly. By using a private binary that reads credentials from the local environment, we ensure that only operators with direct infrastructure access can modify user permissions.
 
-## 5. Client Configuration
+## 6. Deployment Blueprint & Security Hardening
 
-Connected coding agents configure the MCP server directly using its public Cloud Run HTTPS URL (proxied through the primary custom domain):
-
-```json
-{
-  "mcpServers": {
-    "eldamo-remote": {
-      "type": "remote",
-      "url": "https://www.mithlond.com/sse",
-      "headers": {
-        "Authorization": "Bearer YOUR_ACCESS_TOKEN"
-      }
-    }
-  }
-}
-```
+* **IAM Least-Privilege Role Binding:** The deployment script automatically checks for a dedicated, isolated service account `eldamo-mcp-runner`. It binds only the **`roles/datastore.user`** permission to allow reading and purging transient Firestore codes, leaving other cloud segments fully protected.
+* **Auto-Purging TTL Policy:** The database TTL is automatically configured via `gcloud` to purge expired codes from the `mcp_auth_codes` collection after 5 minutes, preventing manual maintenance tasks.
+* **Docker Containerization:** Google Cloud Build runs a multi-stage compilation in-cloud, compiling an optimized, statically linked Go binary running inside a minimal Scratch container.
