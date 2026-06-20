@@ -1,40 +1,56 @@
 # Developer Guide: Build, Test, and Release
 
-This document outlines the operational procedures for configuring your local development environment, compiling from source, testing features, and publishing official releases.
+This document is the comprehensive manual for developers and contributors compiling the **Eldamo MCP Server** from source, configuring local environments, running integration test suites, and publishing official releases.
 
 ---
 
-## 💻 Local Development Configurations
+## 🏗️ Workspace & Environment Configurations
 
-If you are developing features or bug fixes, you can build from source and run the server locally on port `8080` (utilizing your local `.env` configuration).
+When compiling from source, the server initializes Firebase Auth and Google Cloud Firestore clients on startup. You **must** configure your local environment variables before starting the server.
 
-### Prerequisite: Setup Environment Variables
-Because the server initializes Firebase and Firestore clients on startup, you **must** configure your local environment variables in a `.env` file first.
-* Create a `.env` file at the project root (see `README.md` for variable mappings).
-* Ensure your local terminal is authenticated with Google Cloud (Application Default Credentials).
+### 1. Local Environment Variables (`.env`)
+Create a **`.env`** file at the project root. This file is excluded from Git to protect sensitive developer credentials.
 
-### 1. Compile and Build
-Use our project-standard `Makefile` targets to compile the server:
+The backend evaluates the following variables on startup:
+
+| Variable Name | Purpose | Fallback / Precedence Logic |
+| :--- | :--- | :--- |
+| `GCP_PROJECT` | Google Cloud project ID. | Sourced from `.env`; defaults to `testingproject-19c4c` during build. |
+| `GCP_REGION` | Cloud Run container region. | Sourced from `.env`; defaults to `us-central1`. |
+| `SERVICE_NAME`| Cloud Run deployment name. | Sourced from `.env`; defaults to `eldamo-mcp-server`. |
+| `FIREBASE_PROJECT_ID` | Project ID for Firebase Admin verification. | Matches `GCP_PROJECT`. Defaults to `testingproject-19c4c`. |
+| `FIREBASE_DATABASE` | Targets specific Firestore DB instance. | Sourced from `.env`; defaults to **`mithlond-services`** (NOT `(default)`). |
+| `JWT_SIGNING_KEY` | Cryptographic key to sign/verify stateless tokens. | Sourced from `.env`; **dynamically generated as a random 32-char hex string** on first deploy if missing. |
+| `ELVISH_TTS_URL` | (Optional) TTS Synthesizer URL. | Set to enable the conditional `render_elvish_audio` tool. |
+
+---
+
+## 💻 Local Compilation & Development
+
+Use our project-standard `Makefile` targets to build, compile, and run your local environment.
+
+### 1. Build and Compile from Source
 ```bash
-# Build statically-linked binaries for the server and the admin CLI to ./bin
+# Compile and build statically linked binaries for both the server and the admin CLI
 make build
 
 # Start the server locally
 make run
 ```
+*The compiled binaries will be output to `./bin/eldamoapi` and `./bin/eldamo-admin` respectively.*
 
-### 2. Enabling Auth Bypass (Developer Mode)
-For rapid local testing without needing to set up active user sessions or authentication, set the `AUTH_BYPASS` environment variable to `true` when starting the server.
+### 2. Quick Start (Auth Bypass Mode)
+For rapid local testing without needing to set up active user sessions or authenticate via Firebase, set the `AUTH_BYPASS` environment variable to `true`:
 ```bash
-# Bypasses oauthMiddleware signature checks locally
+# Compiles and starts the server with AUTH_BYPASS=true
 make run-dev
 ```
-When `AUTH_BYPASS=true` is present, the `oauthMiddleware` will skip JWT token validation for all incoming requests, allowing your local `opencode` client to connect without providing a valid `MITHLOND_ACCESS_TOKEN`.
+When `AUTH_BYPASS=true` is present, the `oauthMiddleware` will skip JWT token validation for all incoming requests, allowing your local agent client to connect directly without providing a valid `MITHLOND_ACCESS_TOKEN`.
 
 > [!WARNING]
 > Do not use `AUTH_BYPASS=true` in production or on any publicly accessible instance.
 
-### 3. Enabling Audio Pronunciation
+### 3. Enabling Audio Pronunciation (TTS Proxy)
 The `render_elvish_audio` MCP tool is conditionally enabled. To use it, you must have a G2P/TTS service (such as `pronouncing-elvish`) running and set the `ELVISH_TTS_URL` environment variable.
 
 1. Ensure your TTS backend is running (e.g., on port 8082).
@@ -44,6 +60,40 @@ The `render_elvish_audio` MCP tool is conditionally enabled. To use it, you must
    go run main.go oauth.go user.go
    ```
 The `render_elvish_audio` tool will be automatically detected and available to `opencode`.
+
+---
+
+## ⚡ Local Client Configurations
+
+When running the compiled server locally on port `8080` (utilizing `AUTH_BYPASS=true`), you can point your local agents directly to your loopback address.
+
+### A. opencode Local Config
+Add this to your local workspace `opencode.json` or global `~/.config/opencode/opencode.json`:
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "eldamo-local": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8080/sse",
+      "enabled": true
+    }
+  }
+}
+```
+
+### B. Claude Desktop Local Config
+Add this to your `claude_desktop_config.json` file:
+```json
+{
+  "mcpServers": {
+    "eldamo-local": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8080/sse"
+    }
+  }
+}
+```
 
 ---
 
