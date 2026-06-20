@@ -205,16 +205,11 @@ sequenceDiagram
 
 ## 🏗️ System Architecture
 
-The Eldamo MCP Server is designed for speed, memory efficiency, and serverless scalability. It features a self-contained, zero-external-dependency, in-memory search engine.
+The Eldamo MCP Server is designed for speed, memory efficiency, and serverless scalability. It features a self-contained, zero-external-dependency, in-memory search engine. 
+
+For a comprehensive breakdown of our security layer (CIMD, OAuth 2.1, Firestore-based ACL gating) and deployment strategy, see our [Architecture Documentation](docs/architecture.md).
 
 ![Eldamo MCP Server Architecture](docs/architecture.webp)
-
-### Key Architectural Pillars:
-* **Gzip Embed In-Memory Engine (`data/`):** Local preprocessed JSON Lines dataset compressed to **`eldamo.jsonl.gz` (~4.5MB**, down from `24.8MB` raw) and embedded directly into the compiled Go binary using `go:embed`. On server startup, decompression executes under 20ms, allowing scale-from-zero on Google Cloud Run.
-* **Double-Index Search Engine (`index/`):**
-  * **Prefix Trie (Prefix Tree):** Maps all Tolkien vocabulary for fast, autocomplete-friendly word-spelling queries.
-  * **Inverted Keyword Index:** Tokenizes and normalizes glosses, definitions, neologisms, and historical linguistic notes, supporting complex matching.
-* **Ultra-Low Memory Footprint:** The entire compiled binary plus the complete decompressed index and tries consume only `~40-50MB` of RAM, enabling stable hosting on Cloud Run’s most economical resource tier.
 
 ---
 

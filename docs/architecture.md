@@ -64,16 +64,27 @@ To allow decentralized, safe, and frictionless access for third-party AI agents 
 - Firebase Hosting hosts `public/mcp-auth.html` which handles user authentication popup flows using the Firebase Web SDK.
 - To avoid Cross-Origin Resource Sharing (CORS) errors, Firebase Hosting reverse-proxies `/api/oauth/**` requests directly to the Cloud Run Go backend.
 
-### 3. Stateless Signed Access Tokens (JWT)
+### 3. Granular Tool Authorization (ACL Gating)
+Beyond simple authentication, we implement granular control:
+- **`authorized_users` Collection:** Stores user-specific records in Firestore including `active` status, `roles`, and `scopes`.
+- **JWT Embedding:** When the token issuer (`handleTokenExchange`) generates a custom JWT, it queries the user's `scopes` and `roles` from Firestore and embeds them into the JWT claims (`sub`, `scopes`, `roles`).
+- **Middleware Gating:** The Go server enforces these permissions using a `gate` middleware. MCP handlers are wrapped: `mux.Handle("/sse", gate("lexicon:read", secureHandler))`. This validates the claims locally without DB hits during tool execution.
+
+### 4. Stateless Signed Access Tokens (JWT)
 - On code exchange at `/api/oauth/token` (validated via PKCE S256), the server issues stateless, HMAC-SHA256 signed JSON Web Tokens (JWT).
 - During active tool calls at `/sse`, the Go server executes `oauthMiddleware` locally, validating the JWT signature and expiration **without querying Firestore during active tool calls**. This makes the entire session validation loop CPU-bound, sub-millisecond, and exceptionally scalable.
 
-### 4. Transient Firestore Codes
+### 5. Transient Firestore Codes
 - **Firestore Collection (`mcp_auth_codes`):** Setup on the dedicated `mithlond-services` database instance.
 - Stores ONLY temporary 5-minute authorization codes during the token exchange handshake.
 - A **Time-To-Live (TTL)** policy automatically purges codes from Firestore immediately upon expiration.
 
 ---
+
+## 5. Administrative Tooling Pattern
+
+We implement administrative operations (adding/granting/revoking users) via a private, compiled CLI utility (`eldamo-admin`) rather than exposed API endpoints.
+- **Why?** Exposing admin functions via HTTP endpoints increases the attack surface significantly. By using a private binary that reads credentials from the local environment, we ensure that only operators with direct infrastructure access can modify user permissions.
 
 ## 5. Client Configuration
 
