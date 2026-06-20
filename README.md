@@ -11,12 +11,13 @@ It features a secure, modern (2026-standard) **OAuth 2.1 Authentication Layer** 
 ## 📖 Table of Contents
 1. [Exposed MCP Tools](#-exposed-mcp-tools)
 2. [Linguistic Agent Skills](#-linguistic-agent-skills)
-3. [Local Development & Testing](#-local-development--testing)
+3. [One-Line Installation (Prebuilt Binary)](#-one-line-installation-prebuilt-binary)
 4. [Client Configurations](#-client-configurations)
 5. [System Architecture & Deployment Overview](#-system-architecture--deployment-overview)
 6. [Environment Variables & Configuration](#-environment-variables--configuration)
 7. [Cloud Run Deployment](#-cloud-run-deployment)
 8. [Guide: How to Build Your Own Go MCP Server](docs/how-to-create-mcp-server-go.md)
+9. [Contributing & Development](docs/DEVELOPMENT.md)
 
 ---
 
@@ -64,17 +65,16 @@ This repository bundles specialized linguistic agent skills within the `skills/`
 
 ---
 
-## 💻 Local Development & Testing
+## 💾 One-Line Installation (Prebuilt Binary)
 
-### 1. One-Line Installation (Prebuilt Binary)
-For users who do not wish to clone the repository, install the latest binary automatically to `/usr/local/bin/eldamoapi`:
+For users who do not wish to clone the repository or compile from source, you can install the latest prebuilt `eldamoapi` binary automatically to `/usr/local/bin`:
 ```bash
 curl -sL https://raw.githubusercontent.com/ghchinoy/eldamoapi/main/scripts/install.sh | bash
 ```
 
 Once installed, you can configure your local agent to run this binary as a local MCP server.
 
-#### A. Configure for opencode
+### A. Configure for opencode
 Add this to your global `~/.config/opencode/opencode.json` or local workspace `opencode.json`:
 ```json
 {
@@ -92,7 +92,7 @@ Add this to your global `~/.config/opencode/opencode.json` or local workspace `o
 }
 ```
 
-#### B. Configure for Claude Desktop
+### B. Configure for Claude Desktop
 Add this to your `claude_desktop_config.json` file:
 ```json
 {
@@ -105,37 +105,6 @@ Add this to your `claude_desktop_config.json` file:
     }
   }
 }
-```
-
----
-
-### 2. Build and Run Local Server
-If you prefer to build from source, compile and run the server locally on port `8080`. 
-
-**Prerequisite:** Because the server initializes Firebase and Firestore clients on startup, you **must** configure your local environment variables in a `.env` file first (see **Section 6: Environment Variables & Configuration** below for detailed guidance, or simply copy `.env.example` if available).
-
-To compile and start the server:
-```bash
-make run
-```
-
-### 3. Quick Start (No Auth / Developer Bypass)
-For rapid local testing without authentication setup, run the development build:
-```bash
-make run-dev
-```
-*(See `docs/DEVELOPMENT.md` for details on how this bypasses authentication.)*
-
-### 4. Run Test Suite
-Our comprehensive test suite validates database models, prefix/keyword indexers, SSRF dialer blocking, CIMD parser mocks, and cryptographic JWT verifications:
-```bash
-make test
-```
-
-### 5. Static Code Analysis (Linter)
-Validate code quality using golangci-lint:
-```bash
-golangci-lint run
 ```
 
 ---
@@ -244,3 +213,9 @@ Deployment is fully automated using our secure shell pipeline. This pipeline loa
 ```
 
 For detailed deployment blueprints and IAM safety configurations, see our [Architecture Documentation](docs/architecture.md).
+
+---
+
+## 🤝 Contributing & Development
+
+We welcome contributions to the Eldamo MCP Server and Linguistic Agent Skills! If you want to build the server from source, run the integration test suites, configure lint analyzers, or tag a new release, see our [Developer Guide](docs/DEVELOPMENT.md).

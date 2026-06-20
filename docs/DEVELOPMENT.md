@@ -1,27 +1,40 @@
-# Local Development, Releases, and Versioning
+# Developer Guide: Build, Test, and Release
 
-This document outlines the operational procedures for configuring your local development environment, testing features, and publishing official releases.
+This document outlines the operational procedures for configuring your local development environment, compiling from source, testing features, and publishing official releases.
 
 ---
 
 ## 💻 Local Development Configurations
 
-For local development and testing, authentication can be bypassed and TTS audio synthesis can be enabled.
+If you are developing features or bug fixes, you can build from source and run the server locally on port `8080` (utilizing your local `.env` configuration).
 
-### 1. Enabling Auth Bypass
-Set the `AUTH_BYPASS` environment variable to `true` when starting the server.
+### Prerequisite: Setup Environment Variables
+Because the server initializes Firebase and Firestore clients on startup, you **must** configure your local environment variables in a `.env` file first.
+* Create a `.env` file at the project root (see `README.md` for variable mappings).
+* Ensure your local terminal is authenticated with Google Cloud (Application Default Credentials).
+
+### 1. Compile and Build
+Use our project-standard `Makefile` targets to compile the server:
 ```bash
-export AUTH_BYPASS=true
-# Optional: Set the TTS service URL if needed
-export ELVISH_TTS_URL=http://127.0.0.1:8082
-go run main.go oauth.go user.go
+# Build statically-linked binaries for the server and the admin CLI to ./bin
+make build
+
+# Start the server locally
+make run
 ```
-When `AUTH_BYPASS=true` is present, the `oauthMiddleware` will skip JWT token validation for all incoming requests, allowing the `opencode` client to connect without providing a valid `MITHLOND_ACCESS_TOKEN`.
+
+### 2. Enabling Auth Bypass (Developer Mode)
+For rapid local testing without needing to set up active user sessions or authentication, set the `AUTH_BYPASS` environment variable to `true` when starting the server.
+```bash
+# Bypasses oauthMiddleware signature checks locally
+make run-dev
+```
+When `AUTH_BYPASS=true` is present, the `oauthMiddleware` will skip JWT token validation for all incoming requests, allowing your local `opencode` client to connect without providing a valid `MITHLOND_ACCESS_TOKEN`.
 
 > [!WARNING]
 > Do not use `AUTH_BYPASS=true` in production or on any publicly accessible instance.
 
-### 2. Enabling Audio Pronunciation
+### 3. Enabling Audio Pronunciation
 The `render_elvish_audio` MCP tool is conditionally enabled. To use it, you must have a G2P/TTS service (such as `pronouncing-elvish`) running and set the `ELVISH_TTS_URL` environment variable.
 
 1. Ensure your TTS backend is running (e.g., on port 8082).
@@ -31,6 +44,24 @@ The `render_elvish_audio` MCP tool is conditionally enabled. To use it, you must
    go run main.go oauth.go user.go
    ```
 The `render_elvish_audio` tool will be automatically detected and available to `opencode`.
+
+---
+
+## 🧪 Testing and Static Analysis
+
+Always run the test suite and static code linter to verify your changes before creating a pull request or pushing tags.
+
+### 1. Run Test Suite
+Our comprehensive test suite validates database models, prefix/keyword indexers, SSRF dialer blocking, CIMD parser mocks, and cryptographic JWT verifications:
+```bash
+make test
+```
+
+### 2. Static Code Analysis (Linter)
+Validate code quality using golangci-lint. Maintain a strict **0 issues** bar before merging or deploying:
+```bash
+golangci-lint run
+```
 
 ---
 
@@ -44,8 +75,8 @@ We use [GoReleaser](https://goreleaser.com/) to automate the creation of platfor
 #### How to Release
 1.  **Tag the release:**
     ```bash
-    git tag -a v0.1.4 -m "Release v0.1.4"
-    git push origin v0.1.4
+    git tag -a v0.1.6 -m "Release v0.1.6"
+    git push origin v0.1.6
     ```
 2.  The GitHub Action (`.github/workflows/release.yml`) will automatically detect the tag, build the binaries, create a GitHub Release, and upload the artifacts.
 
