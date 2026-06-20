@@ -155,13 +155,22 @@ Add the server block to your global configuration file at **`~/.config/opencode/
 > [!IMPORTANT]
 > Always quit and **restart opencode** after saving configuration changes for the remote MCP server to take effect.
 
-## 🏗️ System Architecture
+---
 
-The Eldamo MCP Server is designed for speed, memory efficiency, and serverless scalability. It features a self-contained, zero-external-dependency, in-memory search engine. 
+## 🏗️ System Architecture & Deployment Overview
 
-For a comprehensive breakdown of our security layer (CIMD, OAuth 2.1, Firestore-based ACL gating) and deployment strategy, see our [Architecture Documentation](docs/architecture.md).
+The Eldamo MCP Server is engineered for zero-dependency portability and stateless scale-to-zero serverless environments. 
 
-![Eldamo MCP Server Architecture](docs/architecture.webp)
+### Key Architectural Pillars:
+* **Gzip Embed Engine (`go:embed`):** Paul Strack's complete 24.8MB flat XML lexicon is preprocessed and embedded directly inside the statically compiled Go binary as a highly compressed gzip dataset (~4.5MB).
+* **Double-Index Search Engine:** On startup, the server decompresses the dataset in under **20ms** and constructs in-memory prefix tries and inverted keyword indexes, allowing sub-millisecond search query latencies.
+* **Low-Footprint Serverless Deployment:** The entire active runtime (tries, indices, and streamable multiplexers) consumes only **~40-50MB of RAM**, allowing us to deploy to cheap Google Cloud Run container instances.
+* **Stateless Security Gateway:** Authentication is anchored on **OAuth 2.1** and **Client ID Metadata Documents (CIMD)**, issuing signed stateless JWTs (`MITHLOND_ACCESS_TOKEN`). No database checks are executed during active tool queries.
+
+For a deep technical dive into these patterns, our Firestore schemas, the loopback-agnostic callback matching (RFC 8252), or our infrastructure hardening blueprints, see the [Detailed Architecture & Design Notes](docs/architecture.md).
+
+---
+
 
 ---
 
