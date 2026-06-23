@@ -47,4 +47,39 @@ Use the integrated TTS service to hear your creations.
 
 ---
 
+## 🧪 Appendix: Advanced Test Cases for Linguists & Maintainers
+
+These "ground truth" test cases allow Tolkien linguists and lexicon database maintainers to verify that the Eldamo MCP Server is operating with perfect historical and structural fidelity (specifically validating that diachronic evolution is separated from conceptual precursors).
+
+### Test Case 1: The Diachronic Boundary Test (Pruning Ghost-Links)
+*   **Goal:** Verify that deleted early-period Gnomish/Early Qenya derivations do NOT contaminate late-period words.
+*   **Query:** `get_derivations(id="444171573")` (for `S. calar` "lamp")
+*   **Expected Behavior:** 
+    *   The returned in-universe derivation chain must strictly map back to root `KAL`.
+    *   The Gnomish precursor root `DṆTṆ` (which belonged only to the deleted 1917 Gnomish word `G. dant`) must **not** appear in the active derivations.
+*   **Linguistic Significance:** Validates that the preprocessor's **Declarative Shield** is successfully preventing recursive XML-leakage.
+
+### Test Case 2: The Conceptual Precursor Retrieval Test
+*   **Goal:** Verify that a scholar can still trace Tolkien's external creative edits across different decades.
+*   **Query:** `get_word_details(id="207957919")` (for `S. calardan` "lampwright")
+*   **Expected Behavior:** 
+    *   The returned details must contain an isolated `precursors` field listing `"n. calardan"` (representing its 1930s Noldorin draft equivalent).
+*   **Linguistic Significance:** Confirms that external authorial revisions are preserved as isolated metadata, allowing rich exploration without corrupting active sound-shift modeling.
+
+### Test Case 3: Recursive Root Anchor Resolution
+*   **Goal:** Validate that proper names recursively derived from a highly productive root are traversed correctly.
+*   **Query:** `get_root_anchors(id="2071154627")` (for root `LIK` "glide, slip, slide")
+*   **Expected Behavior:**
+    *   Returns recursively anchored proper names such as *Sirion* (the Great River of Beleriand) or *Siril* (the river of Númenor).
+*   **Linguistic Significance:** Asserts the accuracy of the in-memory inverted etymological relationship graph.
+
+### Test Case 4: Strict Dialect and Category Gating (Preventing Dialect Leakage)
+*   **Goal:** Find all active nouns starting with a specific spelling, strictly isolated to primary or neo-languages to avoid historic phonetic bleeding.
+*   **Query:** `enquire_lexicon(query="calma", language="q", speech="noun", category="primary")`
+*   **Expected Behavior:**
+    *   Returns Quenya `calma` ("lamp") or `calmatan` ("lampwright") while completely filtering out any Gnomish or Noldorin homophones.
+*   **Linguistic Significance:** Validates multi-dimensional index constraint enforcement.
+
+---
+
 *Tip: Always use the "Auth Bypass" mode (if running locally) or a valid token to ensure your requests reach the synthesis engine.*
