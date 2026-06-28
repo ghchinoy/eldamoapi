@@ -88,7 +88,8 @@ var addCmd = &cobra.Command{
 		
 		uid, email := args[0], args[1]
 		_, err = client.Collection("authorized_users").Doc(uid).Set(context.Background(), map[string]interface{}{
-			"uid": uid, "email": email, "active": true, "roles": []string{"user"}, "scopes": []string{"lexicon:read"},
+			"uid": uid, "email": email, "active": true, "roles": []string{"user"},
+			"scopes": []string{"lexicon:read", "agent:invoke"},
 		})
 		if err != nil { log.Fatal(err) }
 		fmt.Printf("Added %s\n", email)
@@ -110,7 +111,7 @@ var preRegisterCmd = &cobra.Command{
 			"email":  email,
 			"active": false, // Inactive until first login
 			"roles":  []string{"user"},
-			"scopes": []string{"lexicon:read", "audio:generate"},
+			"scopes": []string{"lexicon:read", "audio:generate", "agent:invoke"},
 		})
 		if err != nil { log.Fatal(err) }
 		fmt.Printf("User '%s' pre-registered. They will be activated upon first login.\n", email)
@@ -177,10 +178,13 @@ func generateToken(uid string) (string, error) {
 	}
 	
 	claims := jwt.MapClaims{
-		"sub":    uid,
-		"scopes": []string{"lexicon:read", "audio:generate"},
-		"exp":    time.Now().Add(1 * time.Hour).Unix(),
-		"type":   "access",
+		"sub": uid,
+		"scopes": []string{
+			"lexicon:read", "audio:generate",
+			"agent:invoke", "skill:name-generate", "skill:translate",
+		},
+		"exp":  time.Now().Add(1 * time.Hour).Unix(),
+		"type": "access",
 	}
 	
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

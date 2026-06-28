@@ -27,6 +27,43 @@ var (
 	firebaseAuth    *auth.Client
 )
 
+// contextKey is an unexported type for context keys in this package, preventing
+// collisions with keys from other packages.
+type contextKey int
+
+const claimsKey contextKey = iota
+
+// ClaimsFromContext returns the verified JWT MapClaims stashed by oauthMiddleware.
+// Returns false if no claims are present (should not happen in authenticated handlers).
+func ClaimsFromContext(ctx context.Context) (jwt.MapClaims, bool) {
+	claims, ok := ctx.Value(claimsKey).(jwt.MapClaims)
+	return claims, ok
+}
+
+// scopesSlice extracts the "scopes" claim as a []string. jwt-go stores JSON
+// arrays as []interface{} after parsing, so we convert here.
+func scopesSlice(claims jwt.MapClaims) []string {
+	raw, _ := claims["scopes"].([]interface{})
+	out := make([]string, 0, len(raw))
+	for _, s := range raw {
+		if str, ok := s.(string); ok {
+			out = append(out, str)
+		}
+	}
+	return out
+}
+
+// bypassClaims are injected into the context when AUTH_BYPASS=true so that
+// downstream handlers (gate, A2A interceptor) behave consistently.
+var bypassClaims = jwt.MapClaims{
+	"sub":  "bypass-user",
+	"type": "access",
+	"scopes": []interface{}{
+		"lexicon:read", "audio:generate",
+		"agent:invoke", "skill:name-generate", "skill:translate",
+	},
+}
+
 // initFirebase initializes the Firebase App, Auth Client, and Firestore Client
 // targeting the specific 'mithlond-services' database.
 func initFirebase() {
@@ -604,7 +641,8 @@ func oauthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if os.Getenv("AUTH_BYPASS") == "true" {
 			log.Printf("[Auth] AUTH_BYPASS enabled, skipping authentication for %s %s", r.Method, r.URL.Path)
-			next.ServeHTTP(w, r)
+			ctx := context.WithValue(r.Context(), claimsKey, bypassClaims)
+			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
 
@@ -672,7 +710,10 @@ func oauthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Signature and expiration are valid! Pass-through to MCP handler.
-		next.ServeHTTP(w, r)
+		// Signature and expiration are valid. Stash the claims in the request
+		// context so downstream handlers (gate, A2A CallInterceptor) can read
+		// them without re-parsing the token.
+		ctx := context.WithValue(r.Context(), claimsKey, claims)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

@@ -13,7 +13,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/ghchinoy/eldamoapi/data"
 	"github.com/ghchinoy/eldamoapi/index"
-	"github.com/golang-jwt/jwt/v4"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -433,34 +432,28 @@ func main() {
 	// Create multiplexed handler to support both SSE and Streamable HTTP transports
 	handler := NewMcpMultiplexerHandler(func(*http.Request) *mcp.Server { return server })
 
-// Wrap handler with logging/SSE headers middleware and OAuth Bearer token verification
-	// We'll create a new middleware for scope enforcement later, for now we just keep the base auth.
-	secureHandler := oauthMiddleware(sseLoggingMiddleware(handler))
-
-	// Helper to gate specific handlers with scope checks
+	// gate wraps a handler with a scope check. Claims are already verified and
+	// stashed in the context by oauthMiddleware — no second JWT parse needed.
 	gate := func(requiredScope string, next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Extract claims from token (already verified by oauthMiddleware)
-			tokenStr := ""
-			authHeader := r.Header.Get("Authorization")
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				tokenStr = strings.TrimPrefix(authHeader, "Bearer ")
-			}
-			// (Note: in a real implementation we'd cache the parsed token or claims)
-			token, _ := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
-				return jwtSigningKey, nil
-			})
-			claims := token.Claims.(jwt.MapClaims)
-
-			if !authorizeScopes(claims, requiredScope) {
-				log.Printf("[Auth] Denied: user lacks scope '%s'", requiredScope)
+			claims, ok := ClaimsFromContext(r.Context())
+			if !ok || !authorizeScopes(claims, requiredScope) {
+				log.Printf("[Auth] Denied scope '%s' for %s %s", requiredScope, r.Method, r.URL.Path)
+				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
-				_, _ = fmt.Fprintln(w, "Forbidden: insufficient scopes")
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"error":             "insufficient_scope",
+					"error_description": "Token does not have required scope: " + requiredScope,
+				})
 				return
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
+
+	// oauthMiddleware must run first to stash claims, then gate reads them.
+	// Order: oauthMiddleware → sseLoggingMiddleware → gate(scope) → mcpHandler
+	secureHandler := oauthMiddleware(sseLoggingMiddleware(gate("lexicon:read", handler)))
 
 	// Support simple Liveness probe
 	mux := http.NewServeMux()
@@ -478,10 +471,7 @@ func main() {
 	// Mount the OAuth 2.1 token endpoint
 	mux.HandleFunc("/api/oauth/token", handleTokenExchange)
 
-	// Mount the SSE handler to /sse
-	// Example of gating:
-	// mux.Handle("/sse", gate("lexicon:read", secureHandler))
-	_ = gate
+	// Mount the MCP handler — the scope gate is baked into secureHandler already.
 	mux.Handle("/sse", secureHandler)
 
 	// --- A2A (Agent2Agent) exposure ---

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"iter"
 	"log"
 	"net/http"
@@ -14,15 +15,63 @@ import (
 // a2aBasePath is the HTTP path where the A2A JSON-RPC transport is mounted.
 const a2aBasePath = "/a2a"
 
-// echoAgentExecutor is a minimal AgentExecutor used for the Phase 1 wiring spike.
-// It echoes the incoming message text back to the caller. Real deterministic
-// skills (name generation, lexicon lookups) will replace/extend this later.
+// hasScope reports whether user holds the named scope.
+// Scopes are stored in user.Attributes["scopes"] as []string by claimsInterceptor.
+func hasScope(user *a2asrv.User, scope string) bool {
+	if user == nil || !user.Authenticated {
+		return false
+	}
+	scopes, _ := user.Attributes["scopes"].([]string)
+	for _, s := range scopes {
+		if s == scope {
+			return true
+		}
+	}
+	return false
+}
+
+// claimsInterceptor is an a2asrv.CallInterceptor that:
+//  1. Reads the verified JWT claims stashed by oauthMiddleware from the context.
+//  2. Populates CallContext.User so the AgentExecutor knows who is calling.
+//  3. Enforces the coarse "agent:invoke" scope gate before the executor runs.
+type claimsInterceptor struct {
+	a2asrv.PassthroughCallInterceptor
+}
+
+func (ci *claimsInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallContext, req *a2asrv.Request) (context.Context, any, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok {
+		// oauthMiddleware always stashes claims (including the AUTH_BYPASS path).
+		// If they're missing, something is wired incorrectly — fail closed.
+		return ctx, nil, fmt.Errorf("no auth claims in context; check middleware chain")
+	}
+
+	sub, _ := claims["sub"].(string)
+	scopes := scopesSlice(claims)
+	callCtx.User = a2asrv.NewAuthenticatedUser(sub, map[string]any{"scopes": scopes})
+
+	if !hasScope(callCtx.User, "agent:invoke") {
+		log.Printf("[A2A] Denied agent:invoke for user %q (scopes: %v)", sub, scopes)
+		return ctx, nil, fmt.Errorf("insufficient scope: agent:invoke required")
+	}
+
+	log.Printf("[A2A] Authorized user %q scopes=%v", sub, scopes)
+	return ctx, nil, nil
+}
+
+// echoAgentExecutor is the Phase 1 executor: echoes the inbound text back.
+// It will be replaced/extended by deterministic skill executors in Phase 3.
 type echoAgentExecutor struct{}
 
 var _ a2asrv.AgentExecutor = (*echoAgentExecutor)(nil)
 
 func (*echoAgentExecutor) Execute(ctx context.Context, execCtx *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
 	return func(yield func(a2a.Event, error) bool) {
+		user := "unknown"
+		if execCtx.User != nil {
+			user = execCtx.User.Name
+		}
+
 		var b strings.Builder
 		if execCtx != nil && execCtx.Message != nil {
 			for _, p := range execCtx.Message.Parts {
@@ -35,7 +84,7 @@ func (*echoAgentExecutor) Execute(ctx context.Context, execCtx *a2asrv.ExecutorC
 		if text == "" {
 			text = "(empty message)"
 		}
-		log.Printf("[A2A] echo executor received: %q", text)
+		log.Printf("[A2A] echo user=%q text=%q", user, text)
 		reply := a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("Echo from Eldamo: "+text))
 		yield(reply, nil)
 	}
@@ -108,6 +157,9 @@ func handleAgentCard(w http.ResponseWriter, r *http.Request) {
 // in the JSON-RPC HTTP transport binding. Returned as a plain http.Handler so it
 // can be mounted on the shared mux behind the existing oauthMiddleware.
 func newA2AHandler() http.Handler {
-	requestHandler := a2asrv.NewHandler(&echoAgentExecutor{})
+	requestHandler := a2asrv.NewHandler(
+		&echoAgentExecutor{},
+		a2asrv.WithCallInterceptors(&claimsInterceptor{}),
+	)
 	return a2asrv.NewJSONRPCHandler(requestHandler)
 }
