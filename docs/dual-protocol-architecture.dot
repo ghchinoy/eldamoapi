@@ -1,0 +1,145 @@
+digraph DualProtocol {
+    fontname="Outfit,sans-serif";
+    fontsize=12;
+    rankdir=LR;
+    nodesep=0.5;
+    ranksep=0.9;
+    bgcolor="#F8FAFC";
+    splines=true;
+    overlap=false;
+
+    node [
+        fontname="Outfit,sans-serif";
+        fontsize=10;
+        shape=box;
+        style="filled,rounded";
+        fillcolor="#FFFFFF";
+        fontcolor="#0F172A";
+        color="#CBD5E1";
+        penwidth=1.5;
+    ];
+
+    edge [
+        fontname="Outfit,sans-serif";
+        fontsize=9;
+        fontcolor="#64748B";
+        color="#94A3B8";
+        arrowsize=0.8;
+        penwidth=1.2;
+    ];
+
+    // -------- Clients --------
+    subgraph cluster_clients {
+        label="Clients";
+        labeljust="l";
+        fontcolor="#6D28D9";
+        fontsize=11;
+        color="#E2E8F0";
+        style="filled,dashed";
+        fillcolor="#F5F3FF";
+
+        mcp_client [label="MCP Client\n(opencode, Claude Desktop)", shape=actor, fillcolor="#EDE9FE", color="#DDD6FE", fontcolor="#4C1D95"];
+        a2a_client [label="A2A Client\n(a2acli, agent orchestrators)", shape=actor, fillcolor="#EDE9FE", color="#DDD6FE", fontcolor="#4C1D95"];
+    }
+
+    // -------- Single Cloud Run binary --------
+    subgraph cluster_server {
+        label="Single Go Binary  (Cloud Run :8080,  net/http ServeMux)";
+        labeljust="l";
+        fontcolor="#047857";
+        fontsize=11;
+        color="#E2E8F0";
+        style="filled,dashed";
+        fillcolor="#ECFDF5";
+
+        // Public, unauthenticated discovery
+        subgraph cluster_public {
+            label="Public (no auth)";
+            labeljust="l";
+            fontcolor="#0284C7";
+            fontsize=10;
+            color="#BAE6FD";
+            style="filled,dashed";
+            fillcolor="#F0F9FF";
+
+            wk_oauth [label=".well-known/\noauth-authorization-server", shape=note, fillcolor="#E0F2FE", color="#BAE6FD", fontcolor="#0369A1"];
+            wk_card [label=".well-known/\nagent-card.json", shape=note, fillcolor="#E0F2FE", color="#BAE6FD", fontcolor="#0369A1"];
+            healthz [label="/healthz", shape=note, fillcolor="#E0F2FE", color="#BAE6FD", fontcolor="#0369A1"];
+        }
+
+        // The shared security gate
+        auth_mw [label="oauthMiddleware\n(HMAC-SHA256 JWT verify,\ntype=access, stateless)", shape=octagon, fillcolor="#FEE2E2", color="#FCA5A5", fontcolor="#991B1B", penwidth=2.0];
+
+        // Transactional protocol surface
+        subgraph cluster_mcp {
+            label="Transactional  (MCP)";
+            labeljust="l";
+            fontcolor="#047857";
+            fontsize=10;
+            color="#A7F3D0";
+            style="filled,dashed";
+            fillcolor="#F0FDF4";
+
+            mcp_mux [label="/sse\nMCP Multiplexer\n(SSE + Streamable HTTP)", shape=ellipse, fillcolor="#D1FAE5", color="#A7F3D0", fontcolor="#065F46"];
+            mcp_tools [label="MCP Tools\nenquire_lexicon, get_word_details,\nget_derivations, get_root_anchors,\nrender_elvish_audio", shape=component, fillcolor="#D1FAE5", color="#A7F3D0", fontcolor="#065F46"];
+        }
+
+        // Interactional protocol surface
+        subgraph cluster_a2a {
+            label="Interactional  (A2A)";
+            labeljust="l";
+            fontcolor="#7C3AED";
+            fontsize=10;
+            color="#DDD6FE";
+            style="filled,dashed";
+            fillcolor="#FAF5FF";
+
+            a2a_rpc [label="/a2a\nA2A JSON-RPC Handler\n(message/send, message/stream)", shape=ellipse, fillcolor="#EDE9FE", color="#DDD6FE", fontcolor="#5B21B6"];
+            a2a_exec [label="AgentExecutor\n(skills: name-gen, translation,\nneologism; echo today)", shape=component, fillcolor="#EDE9FE", color="#DDD6FE", fontcolor="#5B21B6"];
+            a2a_intc [label="CallInterceptor\n(scope gate + User identity)\n[Phase 2]", shape=octagon, fillcolor="#EDE9FE", color="#DDD6FE", fontcolor="#5B21B6", style="filled,rounded,dashed"];
+        }
+
+        // Shared core
+        index [label="In-Memory Lexicon Index\n(Trie + Inverted + Derivations)\nloaded once from go:embed", shape=cylinder, fillcolor="#FEF3C7", color="#FCD34D", fontcolor="#78350F"];
+    }
+
+    // -------- External identity --------
+    subgraph cluster_idp {
+        label="Identity & State";
+        labeljust="l";
+        fontcolor="#B45309";
+        fontsize=11;
+        color="#E2E8F0";
+        style="filled,dashed";
+        fillcolor="#FEF3C7";
+
+        portal [label="mithlond-web Portal\n(/mcp-auth consent SPA,\nFirebase Auth)", shape=component, fillcolor="#FDE68A", color="#FCD34D", fontcolor="#78350F"];
+        firestore [label="Firestore (mithlond-services)\nauth codes + authorized_users", shape=cylinder, fillcolor="#FDE68A", color="#FCD34D", fontcolor="#78350F"];
+    }
+
+    // -------- Edges --------
+    // Discovery
+    mcp_client -> wk_oauth [label=" discover OAuth", color="#0284C7"];
+    a2a_client -> wk_card [label=" discover AgentCard", color="#0284C7"];
+
+    // Auth flow
+    mcp_client -> portal [label=" 1. login + consent", color="#6D28D9", style=dashed];
+    portal -> firestore [label=" issue auth code", color="#B45309"];
+    auth_mw -> firestore [label=" token exchange only\n(not during tool calls)", color="#B45309", style=dashed];
+
+    // Authenticated protocol traffic (both through the same gate)
+    mcp_client -> auth_mw [label=" Bearer JWT", color="#991B1B"];
+    a2a_client -> auth_mw [label=" Bearer JWT", color="#991B1B"];
+
+    auth_mw -> mcp_mux [label=" verified", color="#047857"];
+    auth_mw -> a2a_rpc [label=" verified", color="#7C3AED"];
+
+    mcp_mux -> mcp_tools;
+    a2a_rpc -> a2a_intc [style=dashed];
+    a2a_intc -> a2a_exec [style=dashed];
+    a2a_rpc -> a2a_exec [label=" dispatch (today)"];
+
+    // Shared core
+    mcp_tools -> index [label=" read", color="#B45309"];
+    a2a_exec -> index [label=" read", color="#B45309"];
+}
