@@ -5,6 +5,7 @@ go 1.25.5
 require (
 	cloud.google.com/go/firestore v1.22.0
 	firebase.google.com/go/v4 v4.20.0
+	github.com/a2aproject/a2a-go/v2 v2.2.0
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/spf13/cobra v1.10.2

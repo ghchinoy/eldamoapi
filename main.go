@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/ghchinoy/eldamoapi/data"
 	"github.com/ghchinoy/eldamoapi/index"
 	"github.com/golang-jwt/jwt/v4"
@@ -482,6 +483,15 @@ func main() {
 	// mux.Handle("/sse", gate("lexicon:read", secureHandler))
 	_ = gate
 	mux.Handle("/sse", secureHandler)
+
+	// --- A2A (Agent2Agent) exposure ---
+	// Public, unauthenticated AgentCard discovery document.
+	mux.HandleFunc(a2asrv.WellKnownAgentCardPath, handleAgentCard)
+	// Protected A2A JSON-RPC endpoint, behind the same OAuth verifier and SSE
+	// header/logging middleware as the MCP transport.
+	a2aHandler := oauthMiddleware(sseLoggingMiddleware(newA2AHandler()))
+	mux.Handle(a2aBasePath, a2aHandler)
+	mux.Handle(a2aBasePath+"/", a2aHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
