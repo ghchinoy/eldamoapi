@@ -1,19 +1,20 @@
 # 📝 Resolving Recursive Precursor Contamination and Conflated Derivations
 
+June 22, 2026
+
 This document serves as a historical reference and design record detailing how we identified, analyzed, and resolved a systemic data-leakage bug in the Eldamo dataset preparation pipeline. 
 
-By restructuring our XML-to-JSONL preprocessor with a **Declarative Shield**, we pruned thousands of "ghost-links" (falsely mapped derivations) from the database, restored strict diachronic phonetic alignment, and promoted conceptual edits to a clean, isolated, first-class metadata field (`precursors`).
+By restructuring our XML-to-JSONL preprocessor with a "Declarative Shield," we pruned thousands of "ghost-links" (falsely mapped derivations) from the database, restoring diachronic phonetic alignment, and promoted conceptual edits to an isolated, first-class metadata field (`precursors`).
 
----
 
-## 📌 1. Background: Tolkien’s Dual-Axis Timeline
+## 📌 Background: Tolkien’s Dual-Axis Timeline
 
 Tolkien’s invented languages do not exist on a single linear plane. They operate along two distinct, intersecting dimensions of time:
 
 1. **The Diachronic Axis (Internal / In-Universe History):** The fictional, historical evolution of words within Middle-earth from Ancient Common Eldarin roots down to Third Age daughter tongues (e.g., $\text{Primitive Elvish } \sqrt{\text{KAL}} \longrightarrow \text{Quenya } \text{cala}$). This evolution is governed by rigorous, phonetic sound-shift laws.
 2. **The Conceptual Axis (External / Real-World History):** J.R.R. Tolkien’s own lifetime development and revision of his languages from 1915 to 1973. A Welsh-inspired Gnomish word from *The Book of Lost Tales* (1917) represents the *conceptual precursor* to a Sindarin word in *The Lord of the Rings* (1954), but they are not genealogically related in-universe.
 
-To capture this conceptual development, the raw Eldamo XML lexicon database (`eldamo-data.xml`) embeds deleted early-period precursor `<word>` elements *directly inside* the mature, late-period parent `<word>` elements:
+To capture this conceptual development, Paul Strack's Eldamo XML lexicon database (`eldamo-data.xml`) embeds deleted early-period precursor `<word>` elements directly within the mature, late-period parent `<word>` elements:
 
 ```xml
 <word l="s" v="calar" speech="n" gloss="(portable) lamp" cat="DF_LP" page-id="444171573">
@@ -31,21 +32,21 @@ To capture this conceptual development, the raw Eldamo XML lexicon database (`el
 
 ---
 
-## 🐛 2. The Bug: Over-Aggressive Recursive Extraction
+## 🐛 Our Bug: Over-Aggressive Recursive Extraction
 
-Both the python-based analytical pipelines in `eldamo-linguistics` and the Go-based XML preprocessor in `eldamo-server` were suffering from a severe, recursive containment leak:
+Both the python-based analytical pipelines in `eldamo-linguistics` and the Go-based XML preprocessor in `eldamo-server` suffered from a recursive containment leak:
 
 * **In Python (`eldamo-linguistics`):** Algorithms extracted derivations recursively using `.findall(".//deriv")` or `/word//deriv` XPath selectors.
-* **In Go (`eldamo-server`):** The standard Go `encoding/xml` decoder matched sub-elements by their local name. Because the Go struct `XMLWord` only defined fields for `Refs []XMLRef` and `Derivs []XMLDeriv` but lacked any field mapping nested `<word>` elements, the decoder skipped the nested `<word>` tags but **leaked all nested children (`<ref>` and `<deriv>`) directly into the parent word's slices**.
+* **In Go (`eldamo-server`):** The standard Go `encoding/xml` decoder matched sub-elements by their local name. Because the Go struct `XMLWord` only defined fields for `Refs []XMLRef` and `Derivs []XMLDeriv` but lacked any field mapping nested `<word>` elements, the decoder skipped the nested `<word>` tags but leaked all nested children (`<ref>` and `<deriv>`) directly into the parent word's slices.
 
 ### Downstream Consequences:
 1. **Etymological Pollution (Ghost-Links):** In-universe words like `S. calar` (derived from root `√KAL`) were incorrectly associated with Primitive Gnomish roots like `√DṆTṆ` (belonging only to `G. dant`).
-2. **Sound-Shift Engine Failures:** Downstream machine learning and sequence-alignment processors (e.g., Needleman-Wunsch) attempted to compute phonetic transitions between `√DṆTṆ` and `S. calar`. Because this in-universe transition never physically existed, it generated severe false positives in phonetic anomaly detection.
-3. **Misleading AI Tool Completions:** AI agents using `enquire_lexicon` or `get_derivations` received polluted etymological lineages, making them prone to combining wrong roots or applying incorrect Sandhi mutations when generating Elvish words.
+2. **Sound-Shift Engine Failures:** Downstream machine learning and sequence-alignment processors (e.g., Needleman-Wunsch) attempted to compute phonetic transitions between `√DṆTṆ` and `S. calar`. Because this in-universe transition never physically existed, this generated severe false positives in phonetic anomaly detection.
+3. **Misleading AI Tool Completions:** AI agents using `enquire_lexicon` or `get_derivations` received polluted etymological lineages, making them prone to combining wrong roots or applying incorrect Sandhi mutations when generating Elvish words. (Sandhi mutations are changes in the sounds of words at their boundaries due to the influence of adjacent sounds or grammatical context.)
 
 ---
 
-## ⚖️ 3. Options Evaluated
+## ⚖️ Options Evaluated
 
 We evaluated two potential architectures to prevent this leakage in our Go preprocessor:
 
@@ -58,11 +59,11 @@ We evaluated two potential architectures to prevent this leakage in our Go prepr
 
 ---
 
-## 💎 4. The Solution: Option A (The Declarative Shield Pattern)
+## 💎 The Solution: Option A: The Declarative Shield Pattern
 
-We restructured the parser's schema definitions in `/Users/ghchinoy/projects/eldamo-group/eldamo-parse/xml-to-jsonl/main.go` to explicitly capture nested `<word>` blocks. This acts as a **shield**, intercepting sub-elements and preventing them from spilling up into the parent word's slices:
+We restructured the parser's schema definitions in `eldamo-parse/xml-to-jsonl/main.go` to explicitly capture nested `<word>` blocks. This acts as a "shield," intercepting sub-elements and preventing them from spilling up into the parent word's slices:
 
-### 4.1 Restructured Go Struct Schema
+### Restructured Go Struct Schema
 
 We updated `XMLWord` to include a self-referential slice `NestedWords []XMLWord` matching the `"word"` XML tag:
 
@@ -96,8 +97,8 @@ type FlatWord struct {
 }
 ```
 
-### 4.2 Data Mapping Logic
-During XML-to-JSONL compilation, parent derivations are kept completely pure, while immediate nested precursors are captured and formatted:
+### Data Mapping Logic
+During XML-to-JSONL compilation, parent derivations are kept isolated, while immediate nested precursors are captured and formatted:
 
 ```go
 // Map Precursors
@@ -115,9 +116,9 @@ if len(xmlWord.NestedWords) > 0 {
 
 ---
 
-## 📊 5. Verification & Performance Metrics
+## 📊 Verification & Performance Metrics
 
-Running the upgraded compilation pipeline yielded exceptional results:
+Running the upgraded compilation pipeline yielded much better results:
 
 1. **Ghost-Link Elimination:** Under the old system, `S. calar` (ID `444171573`) contained both `["KAL", "DṆTṆ"]` inside its `derivs` list. In the new compiled `eldamo.jsonl`, it contains **only `"KAL"`** in `derivs`, and cleanly references `"g. dant"` in `precursors`:
    ```json
@@ -129,5 +130,5 @@ Running the upgraded compilation pipeline yielded exceptional results:
 
 ---
 
-## 🚀 6. Conclusion
-By introducing the **Declarative Shield**, the Eldamo MCP Server now guarantees **absolute historical accuracy** for its linguistic, phonotactic, and sequence-alignment operations, while simultaneously boosting academic capability by providing first-class access to Tolkien's creative development journey through the `precursors` dataset.
+## 🚀 Conclusion
+By introducing the **Declarative Shield**, the Eldamo MCP Server now aligns with historical accuracy for its linguistic, phonotactic, and sequence-alignment operations, while also boosting academic capability by providing access to Tolkien's creative development journey through the `precursors` dataset.

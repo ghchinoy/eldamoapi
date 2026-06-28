@@ -1,10 +1,15 @@
 # 🌟 Eldamo Agent Tools 🌟
 
-An high-performance **Model Context Protocol (MCP) Server** written in Go, providing AI agents with immediate, structured, linguistic access to Paul Strack's [Eldamo](http://eldamo.org/) Tolkien language lexicon compilation.
+A high-performance, **dual-protocol agent server** written in Go, providing AI agents with immediate, structured, linguistic access to Paul Strack's [Eldamo](http://eldamo.org/) Tolkien language lexicon compilation. A single binary speaks both:
+
+* **MCP** (Model Context Protocol) — the **transactional** surface: stateless tool calls (search, lookups, derivations, TTS) at `/sse`.
+* **A2A** (Agent2Agent) — the **interactional** surface: agentic *skills* (name generation, translation, neologisms) at `/a2a`.
+
+Both protocols are mounted on the same `net/http` mux, gated by the **same OAuth 2.1 JWT layer**, and read the **same in-memory lexicon** loaded once at startup. The mental model: *MCP exposes the tools; A2A exposes the agent that uses them.*
 
 The server is designed for portability and serverless agility: it can be run locally as a native desktop service via either the prebuilt binaries or built from source, or deployed securely as a multi-user, OAuth-gated remote server on Google Cloud Run.
 
-This repository bundles both the **MCP Server** itself and a set of **Linguistic Agent Skills**, which provide AI agents with tools for Tolkien linguistic tasks (translation, name generation, and neologism composition).
+This repository bundles the **MCP Server**, the (in-progress) **A2A agent surface**, and a set of **Linguistic Agent Skills** for Tolkien linguistic tasks (translation, name generation, and neologism composition).
 
 It features a secure, modern (2026-standard) **OAuth 2.1 Authentication Layer** utilizing **Client ID Metadata Documents (CIMD)**, **Firebase Auth**, and **GCP Cloud Run**.
 
@@ -12,14 +17,15 @@ It features a secure, modern (2026-standard) **OAuth 2.1 Authentication Layer** 
 
 ## 📖 Table of Contents
 1. [Exposed MCP Tools](#-exposed-mcp-tools)
-2. [Linguistic Agent Skills](#-linguistic-agent-skills)
-3. [One-Line Installation (Prebuilt Binary)](#-one-line-installation-prebuilt-binary)
-4. [Client Configurations](#-client-configurations)
-5. [System Architecture & Deployment Overview](#-system-architecture--deployment-overview)
-6. [Environment Variables & Configuration](#-environment-variables--configuration)
-7. [Cloud Run Deployment](#-cloud-run-deployment)
-8. [Guide: How to Build Your Own Go MCP Server](docs/how-to-create-mcp-server-go.md)
-9. [Contributing & Development](docs/DEVELOPMENT.md)
+2. [A2A Agent Surface](#-a2a-agent-surface)
+3. [Linguistic Agent Skills](#-linguistic-agent-skills)
+4. [One-Line Installation (Prebuilt Binary)](#-one-line-installation-prebuilt-binary)
+5. [Client Configurations](#-client-configurations)
+6. [System Architecture & Deployment Overview](#-system-architecture--deployment-overview)
+7. [Environment Variables & Configuration](#-environment-variables--configuration)
+8. [Cloud Run Deployment](#-cloud-run-deployment)
+9. [Guide: How to Build Your Own Go MCP Server](docs/how-to-create-mcp-server-go.md)
+10. [Contributing & Development](docs/DEVELOPMENT.md)
 
 
 ## 🛠️ Exposed MCP Tools
@@ -49,6 +55,30 @@ Explores the genealogical relationship and linguistic evolution of words in Tolk
 Retrieves proper names (characters, places, stars, weapons, etc.) recursively derived from a specific root or base word ID.
 * **Arguments:**
   * `id` (string, required): The unique Eldamo `page-id` of the root or base word (e.g., `"2071154627"`).
+
+
+## 🤝 A2A Agent Surface
+
+Alongside MCP, the server exposes an **A2A (Agent2Agent)** endpoint so other agents can delegate *tasks* (not just call tools) to the Eldamo agent. This is the **interactional** counterpart to MCP's transactional tools.
+
+* **AgentCard (public discovery):** `GET /.well-known/agent-card.json`
+* **Protocol endpoint (auth-gated):** `POST /a2a` (JSON-RPC; SSE for streaming)
+* **Auth:** the **same** Bearer JWT used for MCP. A2A clients pass it as `Authorization: Bearer …`.
+
+> **Status:** Phase 1 (wiring spike) is live with an `echo` skill that validates transport + auth. Deterministic linguistic skills (`name-generate`, then `neologism-build`, then LLM-backed `translate`) land in later phases. See the [roadmap](docs/dual-protocol-architecture.md#5-phased-roadmap) and `bd list`.
+
+### Quick test with [a2acli](https://github.com/ghchinoy/a2acli)
+
+```bash
+# Discover the agent (public, no auth)
+a2acli discover --service-url http://127.0.0.1:8080
+
+# Mint a dev JWT and send a message (blocking mode; streaming mode needs a TTY)
+a2acli send "elen sila" --service-url http://127.0.0.1:8080 \
+  --transport jsonrpc --wait --token "$(make token)"
+```
+
+Full procedures and the auth matrix are in the [Test Plan](docs/test-plan.md).
 
 
 ## 🧠 Linguistic Agent Skills
@@ -176,12 +206,13 @@ Add the server block to your global configuration file at **`~/.config/opencode/
 The Eldamo MCP Server is engineered for zero-dependency portability and stateless scale-to-zero serverless environments. 
 
 ### Key Architectural Pillars:
+* **Dual-Protocol, Single Binary:** MCP (`/sse`, transactional tools) and A2A (`/a2a`, interactional skills) share one `net/http` mux, one OAuth gate, and one lexicon index — no second service to deploy. See [Dual-Protocol Architecture](docs/dual-protocol-architecture.md).
 * **Gzip Embed Engine (`go:embed`):** Paul Strack's complete 24.8MB flat XML lexicon is preprocessed and embedded directly inside the statically compiled Go binary as a highly compressed gzip dataset (~4.5MB).
 * **Double-Index Search Engine:** On startup, the server decompresses the dataset in under **20ms** and constructs in-memory prefix tries and inverted keyword indexes, allowing sub-millisecond search query latencies.
 * **Low-Footprint Serverless Deployment:** The entire active runtime (tries, indices, and streamable multiplexers) consumes only **~40-50MB of RAM**, allowing us to deploy to cheap Google Cloud Run container instances.
-* **Stateless Security Gateway:** Authentication is anchored on **OAuth 2.1** and **Client ID Metadata Documents (CIMD)**, issuing signed stateless JWTs (`MITHLOND_ACCESS_TOKEN`). No database checks are executed during active tool queries.
+* **Stateless Security Gateway:** Authentication is anchored on **OAuth 2.1** and **Client ID Metadata Documents (CIMD)**, issuing signed stateless JWTs (`MITHLOND_ACCESS_TOKEN`). No database checks are executed during active tool/skill queries.
 
-For a deep technical dive into these patterns, our Firestore schemas, the loopback-agnostic callback matching (RFC 8252), or our infrastructure hardening blueprints, see the [Detailed Architecture & Design Notes](docs/architecture.md).
+For the dual-protocol design, see [Dual-Protocol Architecture](docs/dual-protocol-architecture.md). For a deep technical dive into the OAuth/CIMD patterns, Firestore schemas, the loopback-agnostic callback matching (RFC 8252), or infrastructure hardening blueprints, see the [Detailed Architecture & Design Notes](docs/architecture.md). For testing procedures, see the [Test Plan](docs/test-plan.md).
 
 
 ## ⚙️ Environment Variables & Configuration

@@ -93,6 +93,41 @@ Add this to your `claude_desktop_config.json` file:
 }
 ```
 
+### C. A2A Local Testing (a2acli)
+
+The same binary also serves the A2A protocol at `/a2a` with the AgentCard at
+`/.well-known/agent-card.json`. Test it with
+[`a2acli`](https://github.com/ghchinoy/a2acli):
+
+```bash
+# Plumbing check (server started with make run-dev / AUTH_BYPASS=true)
+a2acli discover --service-url http://127.0.0.1:8080
+a2acli send "elen sila" --service-url http://127.0.0.1:8080 --transport jsonrpc --wait
+
+# Auth-enforced (server started with make run)
+a2acli send "Namarie" --service-url http://127.0.0.1:8080 \
+  --transport jsonrpc --wait --token "$(make token)"
+```
+
+> `a2acli`'s default streaming mode opens a TUI and needs a TTY; use `--wait`
+> (blocking) or `--immediate` in non-interactive shells / CI.
+
+See the full [Test Plan](test-plan.md) and
+[Dual-Protocol Architecture](dual-protocol-architecture.md) for details.
+
+#### Generating dev JWTs (`make token`)
+
+`make token` mints a 1-hour HS256 access token signed with `JWT_SIGNING_KEY`
+(falls back to the dev key). The UID defaults to `dev-user`; override it:
+
+```bash
+make token              # UID=dev-user
+make token UID=alice    # custom subject
+```
+
+This token works for **both** `/sse` (MCP) and `/a2a` (A2A) since they share the
+same `oauthMiddleware`.
+
 ---
 
 ## 🧪 Testing and Static Analysis

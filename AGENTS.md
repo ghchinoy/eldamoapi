@@ -66,3 +66,63 @@ Run `bd prime` for full AI workflow context, or use these quick reference comman
 * **`bd dolt push`:** Push beads database commits to the remote.
 
 Before executing a task, always claim it (`bd update <id> --claim --status=in_progress`) to maintain accurate workspace coordination.
+
+---
+
+## 🧭 Build Design & Direction Hints
+
+These are pragmatic conventions and gotchas learned while building this server.
+They complement (do not duplicate) the deep docs in `docs/`
+([dual-protocol-architecture](docs/dual-protocol-architecture.md),
+[architecture](docs/architecture.md), [test-plan](docs/test-plan.md)).
+
+### Architecture intent
+* **Dual-protocol, one binary.** This is both an **MCP** server (transactional
+  tools at `/sse`) *and* an **A2A** agent (interactional skills at `/a2a`). When
+  adding a new protocol/surface, **mount it on the existing `http.ServeMux` in
+  `main()` behind the existing `oauthMiddleware`** — do not spin up a second
+  service or a second auth path.
+* **Stay framework-free.** Both the MCP Go SDK and `a2a-go` expose plain
+  `http.Handler`s. Keep using stdlib `net/http` + the existing middleware chain
+  (`oauthMiddleware` → `sseLoggingMiddleware` → handler). Do not introduce
+  gin/echo/chi.
+* **Shared core, thin adapters.** All linguistic logic belongs in the `index`
+  package (the single in-memory `lexiconIndex`). MCP tool handlers and the A2A
+  `AgentExecutor` are thin adapters over it — never duplicate search/derivation
+  logic into a protocol handler.
+* **One token, both protocols.** A JWT from the OAuth flow (or `make token`)
+  must work for `/sse` and `/a2a` alike. Scope vocabulary lives in JWT claims +
+  `cmd/eldamo-admin`; reuse `gate()` / `authorizeScopes` rather than inventing a
+  parallel check.
+* **Skills are deterministic-first.** Prefer pure-Go skills over the lexicon.
+  Make any LLM-backed skill optional and self-hiding when its backend env is
+  unconfigured (mirror the `ELVISH_TTS_URL` conditional-registration pattern).
+* **Public discovery, protected protocol.** `/.well-known/*` documents are
+  unauthenticated; the endpoints they advertise are JWT-gated. Derive
+  `scheme://host` for absolute URLs from the request (honor `X-Forwarded-Host`)
+  as in `handleOAuthDiscovery` / `requestBaseURL`.
+
+### Local dev & verification gotchas
+* **Port 8080 is often occupied.** Run on an alternate port
+  (`PORT=8099 go run .`) and clean up lingering background servers with
+  `lsof -ti:8099 | xargs kill -9`. `go run .` children can outlive a killed
+  parent.
+* **`a2acli` is the A2A conformance client.** Validate the A2A surface with it
+  on every change. Its default streaming mode opens a Bubble Tea TUI and needs a
+  TTY — in non-interactive shells/CI use `--wait` or `--immediate`.
+* **`make token`** mints a dev JWT (defaults `UID=dev-user`; override
+  `make token UID=alice`). The signing key must match the server's
+  `JWT_SIGNING_KEY`.
+* **Trust the linter as a bug detector.** A `golangci-lint` `ineffassign`
+  finding here surfaced a real auth bug (a shadowed `err` made pre-registered
+  users 403). Investigate findings before silencing them; keep the **0-issue**
+  bar.
+
+### Documentation & diagrams
+* **Diagrams: DOT → WebP.** Author Graphviz `.dot` in `docs/`, render with
+  `dot -Tpng -Gdpi=144 X.dot -o /tmp/X.png && cwebp -q 90 /tmp/X.png -o docs/X.webp`
+  (`brew install graphviz webp`). Note: `shape=actor` is unsupported in
+  Graphviz 14 and silently falls back to `box`.
+* **Keep the roadmap in `bd`.** Phase/epic structure for cross-cutting features
+  lives in beads (e.g. the A2A epic `eldamo-server-l04`); reference bd IDs from
+  docs rather than maintaining a separate status list.
