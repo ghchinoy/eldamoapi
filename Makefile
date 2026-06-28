@@ -40,6 +40,8 @@ admin:
 	@go run ./cmd/eldamo-admin/ list
 
 ## token: Generate a 1-hour secure Access Token JWT for testing (override with UID=<uid>)
+## NOTE: Run as: set -a; source .env; set +a; make token
+## so that JWT_SIGNING_KEY is exported to child processes before minting.
 UID ?= dev-user
 token:
 	@go run ./cmd/eldamo-admin/ token $(UID)

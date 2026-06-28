@@ -112,9 +112,12 @@ They complement (do not duplicate) the deep docs in `docs/`
   TTY — in non-interactive shells/CI use `--wait` or `--immediate`.
 * **`make token`** mints a dev JWT (defaults `UID=dev-user`; override
   `make token UID=alice`). The signing key must match the server's
-  `JWT_SIGNING_KEY` — always run `source .env` first, otherwise the
-  fallback key `"temporary-dev-signing-key-mithlond"` is used and the
-  token will be rejected by any non-dev server (Cloud Run, staging, etc.).
+  `JWT_SIGNING_KEY` — always run `set -a; source .env; set +a` before
+  minting, otherwise the fallback key `"temporary-dev-signing-key-mithlond"`
+  is used and the token will be rejected by any non-dev server (Cloud Run,
+  staging, etc.). Plain `source .env` is not enough: `.env` has no `export`
+  statements, so child processes (including `go run` inside `make token`)
+  don't inherit the variable.
 * **Trust the linter as a bug detector.** A `golangci-lint` `ineffassign`
   finding here surfaced a real auth bug (a shadowed `err` made pre-registered
   users 403). Investigate findings before silencing them; keep the **0-issue**

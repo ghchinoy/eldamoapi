@@ -115,10 +115,11 @@ The existing `gate()` / `authorizeScopes` helpers and the scope vocabulary
   CIMD flow via the consent SPA.
 - **A2A clients** like [`a2acli`](https://github.com/ghchinoy/a2acli) are
   passthrough-auth: obtain a JWT out-of-band and pass `--token`. The dev loop is
-  `source .env && a2acli --token "$(make token)" send …`.
-  Always `source .env` first — `make token` reads `JWT_SIGNING_KEY` from the
-  environment and falls back to the hardcoded dev key if unset, which won't
-  match a Cloud Run server running with a real secret.
+  `set -a; source .env; set +a` then `a2acli --token "$(make token)" send …`.
+  `make token` reads `JWT_SIGNING_KEY` from child-process environment. Plain
+  `source .env` only sets a shell variable — use `set -a` (auto-export) so the
+  key is actually inherited by `go run ./cmd/eldamo-admin/`; otherwise it falls
+  back to the hardcoded dev key and Cloud Run rejects the mismatch.
 
 ---
 
