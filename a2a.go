@@ -59,21 +59,48 @@ func (ci *claimsInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallCon
 	return ctx, nil, nil
 }
 
-// echoAgentExecutor is the Phase 1 executor: echoes the inbound text back.
-// It will be replaced/extended by deterministic skill executors in Phase 3.
-type echoAgentExecutor struct{}
+// eldamoAgentExecutor dispatches incoming messages to the appropriate skill
+// executor based on intent detected in the message text. Scope checks for
+// per-skill gates happen here (coarse agent:invoke is already handled by
+// claimsInterceptor before Execute is called).
+//
+// Routing rules:
+//
+//	message starts with "name " OR contains a language keyword → name-generate
+//	everything else                                            → echo
+type eldamoAgentExecutor struct{}
 
-var _ a2asrv.AgentExecutor = (*echoAgentExecutor)(nil)
+var _ a2asrv.AgentExecutor = (*eldamoAgentExecutor)(nil)
 
-func (*echoAgentExecutor) Execute(ctx context.Context, execCtx *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
+func (e *eldamoAgentExecutor) Execute(ctx context.Context, execCtx *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
+	if isNameRequest(execCtx.Message) {
+		// Per-skill scope gate: skill:name-generate required.
+		if !hasScope(execCtx.User, "skill:name-generate") {
+			return func(yield func(a2a.Event, error) bool) {
+				// Yield a plain Message (no task registration needed for rejections).
+				msg := a2a.NewMessage(a2a.MessageRoleAgent,
+					a2a.NewTextPart("Insufficient scope: skill:name-generate is required to use the name-generation skill."))
+				yield(msg, nil)
+			}
+		}
+		return runNameGenerate(ctx, execCtx)
+	}
+	return runEcho(ctx, execCtx)
+}
+
+func (*eldamoAgentExecutor) Cancel(ctx context.Context, execCtx *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
+	return func(yield func(a2a.Event, error) bool) {}
+}
+
+// runEcho is the fallback executor: echoes the inbound text back.
+func runEcho(_ context.Context, execCtx *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
 	return func(yield func(a2a.Event, error) bool) {
 		user := "unknown"
 		if execCtx.User != nil {
 			user = execCtx.User.Name
 		}
-
 		var b strings.Builder
-		if execCtx != nil && execCtx.Message != nil {
+		if execCtx.Message != nil {
 			for _, p := range execCtx.Message.Parts {
 				if t := p.Text(); t != "" {
 					b.WriteString(t)
@@ -90,17 +117,13 @@ func (*echoAgentExecutor) Execute(ctx context.Context, execCtx *a2asrv.ExecutorC
 	}
 }
 
-func (*echoAgentExecutor) Cancel(ctx context.Context, execCtx *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
-	return func(yield func(a2a.Event, error) bool) {}
-}
-
 // buildAgentCard constructs the public AgentCard for the given absolute base URL
 // (e.g. "https://host"). The JSON-RPC interface URL is derived from the base URL.
 func buildAgentCard(baseURL string) *a2a.AgentCard {
 	return &a2a.AgentCard{
 		Name:        "Eldamo Elvish Agent",
 		Description: "Agentic access to Paul Strack's Eldamo Tolkien-language lexicon: search, derivations, and (forthcoming) name-generation and translation skills.",
-		Version:     "0.1.0",
+		Version:     "0.2.0",
 		SupportedInterfaces: []*a2a.AgentInterface{
 			a2a.NewAgentInterface(baseURL+a2aBasePath, a2a.TransportProtocolJSONRPC),
 		},
@@ -109,11 +132,23 @@ func buildAgentCard(baseURL string) *a2a.AgentCard {
 		Capabilities:       a2a.AgentCapabilities{Streaming: true},
 		Skills: []a2a.AgentSkill{
 			{
+				ID:          "name-generate",
+				Name:        "Elvish Name Generator",
+				Description: "Generates grammatically authentic Quenya or Sindarin names by searching the Eldamo lexicon for roots matching concept keywords and applying historical compounding rules.",
+				Tags:        []string{"linguistics", "names", "quenya", "sindarin", "tolkien"},
+				Examples: []string{
+					"name star silver quenya",
+					"name grey flame sindarin",
+					"name ocean wisdom feminine sindarin",
+					"name strong mountain masculine quenya",
+				},
+			},
+			{
 				ID:          "echo",
 				Name:        "Echo",
-				Description: "Phase 1 wiring spike: echoes the supplied text back.",
+				Description: "Diagnostic: echoes the supplied text back.",
 				Tags:        []string{"diagnostic"},
-				Examples:    []string{"hello", "elen sila"},
+				Examples:    []string{"hello", "Namarie"},
 			},
 		},
 	}
@@ -158,7 +193,7 @@ func handleAgentCard(w http.ResponseWriter, r *http.Request) {
 // can be mounted on the shared mux behind the existing oauthMiddleware.
 func newA2AHandler() http.Handler {
 	requestHandler := a2asrv.NewHandler(
-		&echoAgentExecutor{},
+		&eldamoAgentExecutor{},
 		a2asrv.WithCallInterceptors(&claimsInterceptor{}),
 	)
 	return a2asrv.NewJSONRPCHandler(requestHandler)

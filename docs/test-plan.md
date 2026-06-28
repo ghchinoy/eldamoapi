@@ -35,12 +35,13 @@ go build ./...           # must succeed
 Run: `make test` (verbose) or `go test ./...`.
 
 ### Gaps to close (tracked in `bd`)
-- **A2A executor unit test** — assert `echoAgentExecutor.Execute` yields the
-  expected message for given parts (Phase 1 follow-up).
+- **A2A executor unit test** — assert executor yields the expected message for given parts.
 - **AgentCard handler test** — `handleAgentCard` returns valid JSON, correct
   `scheme://host` derivation (honoring `X-Forwarded-Host`), and CORS headers.
 - **A2A auth integration test** — `httptest` server with `oauthMiddleware`
   wrapping `/a2a`: assert 401 without token, 200 with a valid `make token` JWT.
+- **name-generate unit test** — assert `parseNameRequest`, `bestRoot`, and
+  `buildName` produce expected output for known inputs.
 
 ---
 
@@ -111,6 +112,57 @@ a2acli send "Namarie" --service-url http://127.0.0.1:8099 \
 > Without this, `make token` falls back to `"temporary-dev-signing-key-mithlond"`
 > and Cloud Run rejects the token with 401.
 
+### 2.3b Phase 2 — scope gating (MCP `lexicon:read`, A2A `agent:invoke`)
+
+> **Token setup** — always export before minting:
+> ```bash
+> set -a; source .env; set +a
+> FULL=$(make token)          # lexicon:read + agent:invoke + skill:*
+> ```
+
+**MCP `/sse` scope gate:**
+```bash
+# Pass — full token carries lexicon:read
+curl --max-time 2 -s -o /dev/null -w "HTTP %{http_code}\n" \
+  -H "Authorization: Bearer $FULL" http://127.0.0.1:8080/sse
+# -> HTTP 200  (SSE stream opens, will hang — Ctrl-C after seeing 200)
+
+# Fail — no token
+curl --max-time 2 -s -o /dev/null -w "HTTP %{http_code}\n" \
+  http://127.0.0.1:8080/sse
+# -> HTTP 401
+
+# Fail — token without lexicon:read (use a2acli or craft via python3)
+# -> HTTP 403  {"error":"insufficient_scope",...}
+```
+
+**A2A `/a2a` scope gate:**
+```bash
+# Pass — full token has agent:invoke
+a2acli send "Aiya" --service-url http://127.0.0.1:8080 \
+  --transport jsonrpc --wait --token "$FULL"
+# -> Agent: Echo from Eldamo: Aiya
+# Server log should show: [A2A] Authorized user "dev-user" scopes=[...]
+
+# Fail — no token
+curl -s -o /dev/null -w "HTTP %{http_code}\n" -X POST http://127.0.0.1:8080/a2a \
+  -H "Content-Type: application/json" -d '{}'
+# -> HTTP 401
+
+# Fail — token missing agent:invoke (JSON-RPC error from interceptor)
+# -> HTTP 200 with {"error":{"code":-32601,"message":"method not found"}}
+# (a2a-go interceptor rejection; Execute is never called — check server log)
+```
+
+**AUTH_BYPASS shortcut:**
+```bash
+AUTH_BYPASS=true PORT=8080 go run .
+a2acli send "Aiya" --service-url http://127.0.0.1:8080 \
+  --transport jsonrpc --wait
+# -> Agent: Echo from Eldamo: Aiya
+# Server log: [A2A] Authorized user "bypass-user" scopes=[...all...]
+```
+
 ### 2.4 MCP regression (no breakage)
 
 ```bash
@@ -118,6 +170,73 @@ curl -s -o /dev/null -w "%{http_code}\n" -X POST http://127.0.0.1:8099/sse -d '{
 ```
 MCP tools themselves are exercised by `make test` and by any MCP client (opencode /
 Claude Desktop) per the README configuration.
+
+---
+
+### 2.5 Phase 3 — `name-generate` skill (keyword-driven)
+
+The name-generate skill is triggered by messages that begin with `name ` (case-insensitive) or contain a language keyword (`quenya`/`sindarin`) with concept words.
+
+**Input format:**
+```
+name <concept1> [concept2] [quenya|sindarin] [masculine|feminine]
+```
+Examples: `name star silver quenya`, `name grey flame sindarin`, `name ocean wisdom feminine sindarin`
+
+**Start the server (AUTH_BYPASS for ease):**
+```bash
+AUTH_BYPASS=true PORT=8080 go run .
+```
+
+**Discover — card should list `name-generate` skill:**
+```bash
+a2acli discover --service-url http://127.0.0.1:8080
+# Expect: skill "name-generate" listed alongside "echo"
+```
+
+**Send a name request (blocking):**
+```bash
+a2acli send "name star silver quenya" \
+  --service-url http://127.0.0.1:8080 --transport jsonrpc --wait
+# Expect multi-step output:
+#   [working] Searching Quenya lexicon for: star, silver
+#   [working] Found 'elen' (star, ray of light) for 'star'
+#   [working] Found 'celebr' (silver) for 'silver'
+#   [working] Applying compounding rules...
+#   [completed] **Celelebrendil** — silver + star + -ndil (lover/friend)
+#               Roots: celebr (silver) + elen (star) = celebrelen + suffix -ndil
+```
+
+**Send with explicit Sindarin:**
+```bash
+a2acli send "name grey flame sindarin" \
+  --service-url http://127.0.0.1:8080 --transport jsonrpc --wait
+# Expect: compound from mith (grey) + naur/lacho (flame/fire) in Sindarin
+```
+
+**Scope check — `skill:name-generate` required:**
+```bash
+set -a; source .env; set +a && FULL=$(make token)
+a2acli send "name star quenya" \
+  --service-url http://127.0.0.1:8080 --transport jsonrpc --wait --token "$FULL"
+# FULL token includes skill:name-generate → succeeds
+
+# A token missing skill:name-generate → JSON-RPC error, Execute returns error message
+```
+
+**Streaming (TTY only — in an interactive terminal):**
+```bash
+a2acli send "name star silver quenya" \
+  --service-url http://127.0.0.1:8080 --transport jsonrpc --token "$FULL"
+# Bubble Tea TUI shows streaming Working events then final result
+```
+
+**Fallback to echo (non-name input):**
+```bash
+a2acli send "Namarie!" \
+  --service-url http://127.0.0.1:8080 --transport jsonrpc --wait
+# -> Agent: Echo from Eldamo: Namarie!
+```
 
 ---
 
@@ -137,7 +256,19 @@ Claude Desktop) per the README configuration.
 
 ---
 
-## 4. Conformance loop with a2acli
+## 4. Scope matrix (Phase 2+)
+
+| Token scopes | `/sse` | `/a2a` echo | `/a2a` name-generate |
+| :--- | :--- | :--- | :--- |
+| AUTH_BYPASS | 200 | echo ✓ | name-gen ✓ |
+| `lexicon:read` + `agent:invoke` + `skill:name-generate` (full `make token`) | 200 | echo ✓ | name-gen ✓ |
+| `lexicon:read` only | 200 | interceptor rejects | interceptor rejects |
+| `agent:invoke` only | 403 | echo ✓ | skill scope rejected |
+| none / no token | 401 | 401 | 401 |
+
+---
+
+## 5. Conformance loop with a2acli
 
 `a2acli` is the reference real-world A2A client for this server. Validate against it
 whenever the A2A surface changes:
@@ -153,7 +284,7 @@ repo (see that project's `bd list`).
 
 ---
 
-## 5. CI gate checklist
+## 6. CI gate checklist
 
 - [ ] `go build ./...`
 - [ ] `make test`
