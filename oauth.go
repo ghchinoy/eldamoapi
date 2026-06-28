@@ -135,12 +135,11 @@ func FetchAndValidateCIMD(ctx context.Context, clientIDUrl string) (*ClientIDMet
 	}
 
 	// Append a dynamic query parameter to completely bypass any GFE/outbound intermediate caches
-	cacheBusterURL := clientIDUrl
+	cacheSep := "?"
 	if strings.Contains(clientIDUrl, "?") {
-		cacheBusterURL = fmt.Sprintf("%s&_cb=%d", clientIDUrl, time.Now().UnixNano())
-	} else {
-		cacheBusterURL = fmt.Sprintf("%s?_cb=%d", clientIDUrl, time.Now().UnixNano())
+		cacheSep = "&"
 	}
+	cacheBusterURL := fmt.Sprintf("%s%s_cb=%d", clientIDUrl, cacheSep, time.Now().UnixNano())
 
 	client := SafeHTTPClient()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cacheBusterURL, nil)
@@ -250,14 +249,15 @@ func handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Attempt to find by email
 		query := firestoreClient.Collection("authorized_users").Where("email", "==", decodedToken.Claims["email"]).Where("uid", "==", "").Documents(r.Context())
-		doc, err := query.Next()
-		if err == nil {
+		doc, qErr := query.Next()
+		if qErr == nil {
 			// Found a pre-registered email, link the UID!
-			_, err = doc.Ref.Update(r.Context(), []firestore.Update{
+			if _, uErr := doc.Ref.Update(r.Context(), []firestore.Update{
 				{Path: "uid", Value: decodedToken.UID},
 				{Path: "active", Value: true},
-			})
-			if err == nil {
+			}); uErr == nil {
+				// Re-fetch the now-linked user; this resets the outer err on
+				// success so the authorization check below passes.
 				user, err = getUser(r.Context(), decodedToken.UID)
 			}
 		}

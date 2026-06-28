@@ -66,7 +66,7 @@ var listCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		client, err := getFirestoreClient()
 		if err != nil { log.Fatal(err) }
-		defer client.Close()
+		defer func() { _ = client.Close() }()
 		
 		iter := client.Collection("authorized_users").Documents(context.Background())
 		for {
@@ -84,7 +84,7 @@ var addCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		client, err := getFirestoreClient()
 		if err != nil { log.Fatal(err) }
-		defer client.Close()
+		defer func() { _ = client.Close() }()
 		
 		uid, email := args[0], args[1]
 		_, err = client.Collection("authorized_users").Doc(uid).Set(context.Background(), map[string]interface{}{
@@ -103,7 +103,7 @@ var preRegisterCmd = &cobra.Command{
 		email := args[0]
 		client, err := getFirestoreClient()
 		if err != nil { log.Fatal(err) }
-		defer client.Close()
+		defer func() { _ = client.Close() }()
 		
 		_, err = client.Collection("authorized_users").Doc(email).Set(context.Background(), map[string]interface{}{
 			"uid":    "", // Placeholder
@@ -124,7 +124,7 @@ var grantCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		client, err := getFirestoreClient()
 		if err != nil { log.Fatal(err) }
-		defer client.Close()
+		defer func() { _ = client.Close() }()
 
 		uid, err := resolveUID(context.Background(), args[0])
 		if err != nil { log.Fatal(err) }
@@ -145,7 +145,7 @@ var revokeScopeCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		client, err := getFirestoreClient()
 		if err != nil { log.Fatal(err) }
-		defer client.Close()
+		defer func() { _ = client.Close() }()
 
 		uid, err := resolveUID(context.Background(), args[0])
 		if err != nil { log.Fatal(err) }
