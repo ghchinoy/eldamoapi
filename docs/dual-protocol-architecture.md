@@ -115,7 +115,10 @@ The existing `gate()` / `authorizeScopes` helpers and the scope vocabulary
   CIMD flow via the consent SPA.
 - **A2A clients** like [`a2acli`](https://github.com/ghchinoy/a2acli) are
   passthrough-auth: obtain a JWT out-of-band and pass `--token`. The dev loop is
-  `a2acli --token "$(make token)" send …`.
+  `source .env && a2acli --token "$(make token)" send …`.
+  Always `source .env` first — `make token` reads `JWT_SIGNING_KEY` from the
+  environment and falls back to the hardcoded dev key if unset, which won't
+  match a Cloud Run server running with a real secret.
 
 ---
 

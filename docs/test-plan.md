@@ -95,11 +95,19 @@ curl -s -w "\nHTTP %{http_code}\n" -X POST http://127.0.0.1:8099/a2a \
   -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{}}'   # -> 401
 
-# /a2a accepts a valid JWT
-TOKEN=$(make token)        # defaults UID=dev-user; override: make token UID=alice
+# /a2a accepts a valid JWT — source .env so make token uses the SAME
+# JWT_SIGNING_KEY as the running server (local or Cloud Run).
+source .env && TOKEN=$(make token)   # defaults UID=dev-user
 a2acli send "Namarie" --service-url http://127.0.0.1:8099 \
   --transport jsonrpc --wait --token "$TOKEN"                 # -> echo succeeds
 ```
+
+> **Key-mismatch gotcha:** `make token` (and `eldamo-admin token`) reads
+> `JWT_SIGNING_KEY` from the environment, falling back to the hardcoded dev
+> string `"temporary-dev-signing-key-mithlond"`. A server started without that
+> env var will accept that fallback token. A Cloud Run instance started with a
+> real secret will not — always `source .env` (or export `JWT_SIGNING_KEY`)
+> before minting a token intended for a non-dev server.
 
 ### 2.4 MCP regression (no breakage)
 
