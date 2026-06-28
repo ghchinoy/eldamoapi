@@ -39,7 +39,8 @@ test:
 admin:
 	@go run ./cmd/eldamo-admin/ list
 
-## token: Generate a 1-hour secure Access Token JWT for testing
+## token: Generate a 1-hour secure Access Token JWT for testing (override with UID=<uid>)
+UID ?= dev-user
 token:
 	@go run ./cmd/eldamo-admin/ token $(UID)
 
