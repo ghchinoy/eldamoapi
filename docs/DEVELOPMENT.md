@@ -93,7 +93,25 @@ Add this to your `claude_desktop_config.json` file:
 }
 ```
 
-### C. A2A Local Testing (a2acli)
+### C. A2A Remote Testing (production — candir.mithlond.com)
+
+The production A2A agent is available at `https://candir.mithlond.com/a2a`
+(`candir` = Sindarin "herald-man", from `cáno` √KAN + `-dîr`).
+
+```bash
+# Always export .env so JWT_SIGNING_KEY reaches child processes
+set -a; source .env; set +a
+
+a2acli discover --service-url https://candir.mithlond.com
+a2acli send "name star silver quenya" \
+  --service-url https://candir.mithlond.com --transport jsonrpc --wait \
+  --token "$(make token)"
+```
+
+DNS: `candir.mithlond.com` CNAME → `ghs.googlehosted.com`
+Domain mapping: `gcloud run domain-mappings describe --domain candir.mithlond.com --region us-central1`
+
+### D. A2A Local Testing (a2acli)
 
 The same binary also serves the A2A protocol at `/a2a` with the AgentCard at
 `/.well-known/agent-card.json`. Test it with

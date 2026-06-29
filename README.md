@@ -65,17 +65,31 @@ Alongside MCP, the server exposes an **A2A (Agent2Agent)** endpoint so other age
 * **Protocol endpoint (auth-gated):** `POST /a2a` (JSON-RPC; SSE for streaming)
 * **Auth:** the **same** Bearer JWT used for MCP. A2A clients pass it as `Authorization: Bearer …`.
 
-> **Status:** Phase 1 (wiring spike) is live with an `echo` skill that validates transport + auth. Deterministic linguistic skills (`name-generate`, then `neologism-build`, then LLM-backed `translate`) land in later phases. See the [roadmap](docs/dual-protocol-architecture.md#5-phased-roadmap) and `bd list`.
+> **Status:** All four A2A skills are live: `name-generate` (deterministic), `neologism` (LLM, two-path), `translate` (LLM, streaming), and `echo` (diagnostic). The agent is served at `https://candir.mithlond.com/a2a`.
 
 ### Quick test with [a2acli](https://github.com/ghchinoy/a2acli)
 
 ```bash
 # Discover the agent (public, no auth)
-a2acli discover --service-url http://127.0.0.1:8080
+a2acli discover --service-url https://candir.mithlond.com
 
-# Mint a dev JWT and send a message (blocking mode; streaming mode needs a TTY)
-a2acli send "elen sila" --service-url http://127.0.0.1:8080 \
-  --transport jsonrpc --wait --token "$(make token)"
+# Token — always set -a first so JWT_SIGNING_KEY reaches child processes
+set -a; source .env; set +a
+
+# Name generation (deterministic)
+a2acli send "name star silver quenya" \
+  --service-url https://candir.mithlond.com --transport jsonrpc --wait \
+  --token "$(make token)"
+
+# Translation (LLM-backed, streaming)
+a2acli send "translate farewell my friend to quenya" \
+  --service-url https://candir.mithlond.com --transport jsonrpc --wait \
+  --token "$(make token)"
+
+# Neologism (LLM, two artifacts)
+a2acli send "neologism hover-board quenya" \
+  --service-url https://candir.mithlond.com --transport jsonrpc --wait \
+  --token "$(make token)"
 ```
 
 Full procedures and the auth matrix are in the [Test Plan](docs/test-plan.md).
@@ -160,12 +174,12 @@ Create an **`opencode.json`** file in the root of your local workspace directory
   "mcp": {
     "eldamo-remote": {
       "type": "remote",
-      "url": "https://eldamo-mcp-server-308690897031.us-central1.run.app/sse",
+      "url": "https://candir.mithlond.com/sse",
       "enabled": true,
       "oauth": {
         "clientId": "https://www.mithlond.com/metadata.json",
         "authorizationUrl": "https://www.mithlond.com/mcp-auth",
-        "tokenUrl": "https://eldamo-mcp-server-308690897031.us-central1.run.app/api/oauth/token"
+        "tokenUrl": "https://candir.mithlond.com/api/oauth/token"
       }
     }
   }
@@ -184,12 +198,12 @@ Add the server block to your global configuration file at **`~/.config/opencode/
   "mcp": {
     "eldamo-remote": {
       "type": "remote",
-      "url": "https://eldamo-mcp-server-308690897031.us-central1.run.app/sse",
+      "url": "https://candir.mithlond.com/sse",
       "enabled": true,
       "oauth": {
         "clientId": "https://www.mithlond.com/metadata.json",
         "authorizationUrl": "https://www.mithlond.com/mcp-auth",
-        "tokenUrl": "https://eldamo-mcp-server-308690897031.us-central1.run.app/api/oauth/token"
+        "tokenUrl": "https://candir.mithlond.com/api/oauth/token"
       }
     }
   }
