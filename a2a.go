@@ -169,8 +169,8 @@ var allScopes = map[string]string{
 func buildAgentCard(baseURL string) *a2a.AgentCard {
 	return &a2a.AgentCard{
 		Name:        "Eldamo Elvish Agent",
-		Description: "Agentic access to Paul Strack's Eldamo Tolkien-language lexicon: search, derivations, name-generation, and (forthcoming) translation skills.",
-		Version:     "0.4.0",
+		Description: "Agentic access to Paul Strack's Eldamo Tolkien-language lexicon. Skills: Quenya/Sindarin name generation (deterministic, lexicon-grounded), morphologically-guided translation (Gemini, streaming), and dual-path neologism construction with phonotactic scoring (Gemini, two artifacts).",
+		Version:     "0.4.1",
 		SupportedInterfaces: []*a2a.AgentInterface{
 			a2a.NewAgentInterface(baseURL+a2aBasePath, a2a.TransportProtocolJSONRPC),
 		},
