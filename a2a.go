@@ -12,8 +12,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 )
 
-
-
 // a2aBasePath is the HTTP path where the A2A JSON-RPC transport is mounted.
 const a2aBasePath = "/a2a"
 
@@ -75,8 +73,17 @@ type eldamoAgentExecutor struct{}
 var _ a2asrv.AgentExecutor = (*eldamoAgentExecutor)(nil)
 
 func (e *eldamoAgentExecutor) Execute(ctx context.Context, execCtx *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
-	// Check translate before name-generate: "translate X to quenya" contains
-	// a language keyword that would otherwise falsely trigger isNameRequest.
+	// Order matters: translate and neologism have specific trigger prefixes;
+	// check them before name-generate which fires on any language keyword.
+	if isNeologismRequest(execCtx.Message) {
+		if !TranslateEnabled() {
+			return scopeRejection("")
+		}
+		if !hasScope(execCtx.User, "skill:neologism") {
+			return scopeRejection("skill:neologism")
+		}
+		return runNeologism(ctx, execCtx)
+	}
 	if isTranslateRequest(execCtx.Message) {
 		if !TranslateEnabled() {
 			return scopeRejection("")
@@ -150,7 +157,8 @@ var allScopes = map[string]string{
 	"audio:generate":      "Synthesize Elvish pronunciation audio via the TTS proxy",
 	"agent:invoke":        "Send messages to the Eldamo A2A agent",
 	"skill:name-generate": "Use the Elvish name-generation skill",
-	"skill:translate":     "Use the Elvish translation skill (forthcoming)",
+	"skill:translate":     "Use the Elvish translation skill",
+	"skill:neologism":     "Use the Elvish neologism-builder skill",
 }
 
 // buildAgentCard constructs the public AgentCard for the given absolute base URL
@@ -161,7 +169,7 @@ func buildAgentCard(baseURL string) *a2a.AgentCard {
 	return &a2a.AgentCard{
 		Name:        "Eldamo Elvish Agent",
 		Description: "Agentic access to Paul Strack's Eldamo Tolkien-language lexicon: search, derivations, name-generation, and (forthcoming) translation skills.",
-		Version:     "0.3.0",
+		Version:     "0.4.0",
 		SupportedInterfaces: []*a2a.AgentInterface{
 			a2a.NewAgentInterface(baseURL+a2aBasePath, a2a.TransportProtocolJSONRPC),
 		},
@@ -217,6 +225,20 @@ func buildSkillList() []a2a.AgentSkill {
 		},
 	}
 	if TranslateEnabled() {
+		skills = append(skills, a2a.AgentSkill{
+			ID:          "neologism",
+			Name:        "Elvish Neologism Builder",
+			Description: "Constructs new Elvish words for modern concepts using two stylistic paths (Practical and Poetic), the Anchorage Protocol, phonotactic constraints, and a 100-point scoring matrix.",
+			Tags:        []string{"linguistics", "neologism", "quenya", "sindarin", "tolkien"},
+			Examples: []string{
+				"neologism hover-board quenya",
+				"coin a word for artificial intelligence sindarin",
+				"invent: blockchain in quenya",
+			},
+			SecurityRequirements: a2a.SecurityRequirementsOptions{
+				{mithlondOAuthSchemeName: {"agent:invoke", "skill:neologism"}},
+			},
+		})
 		skills = append(skills, a2a.AgentSkill{
 			ID:          "translate",
 			Name:        "Elvish Translator",

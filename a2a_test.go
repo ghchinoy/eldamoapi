@@ -1,6 +1,6 @@
 package main
 
-// a2a_test.go — l04.7 test backfill
+// a2a_test.go — l04.7 + translate test backfill (djk)
 //
 // Coverage:
 //   TestAgentCardHandler        — handleAgentCard HTTP surface (200, 405, CORS, host derivation)
@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -562,4 +563,157 @@ func TestExecutorScopeRejection(t *testing.T) {
 	if !strings.Contains(text, "skill:name-generate") {
 		t.Errorf("expected rejection message to mention 'skill:name-generate', got: %q", text)
 	}
+}
+
+// ── Translate skill tests (djk) ───────────────────────────────────────────────
+
+func TestIsTranslateRequest(t *testing.T) {
+	cases := []struct {
+		text string
+		want bool
+	}{
+		{"translate farewell to quenya", true},
+		{"translate to sindarin: the grey havens", true},
+		{"Translate This Phrase", true}, // case-insensitive
+		{"translation of namarie", false}, // "translation" ≠ "translate" prefix
+		{"name star silver quenya", false}, // name-generate, not translate
+		{"Namarie", false},
+		{"hello", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.text, func(t *testing.T) {
+			got := isTranslateRequest(makeTestMessage(tc.text))
+			if got != tc.want {
+				t.Errorf("isTranslateRequest(%q) = %v, want %v", tc.text, got, tc.want)
+			}
+		})
+	}
+	t.Run("nil message returns false", func(t *testing.T) {
+		if isTranslateRequest(nil) {
+			t.Error("isTranslateRequest(nil) should be false")
+		}
+	})
+}
+
+func TestParseTranslateRequest(t *testing.T) {
+	t.Run("default: quenya target", func(t *testing.T) {
+		req := parseTranslateRequest(makeTestMessage("translate hello"))
+		if req.targetLang != "q" {
+			t.Errorf("want lang=q, got %s", req.targetLang)
+		}
+		if req.targetName != "Quenya" {
+			t.Errorf("want Quenya, got %s", req.targetName)
+		}
+	})
+
+	t.Run("sindarin keyword detected", func(t *testing.T) {
+		req := parseTranslateRequest(makeTestMessage("translate to sindarin: the grey havens"))
+		if req.targetLang != "s" {
+			t.Errorf("want lang=s, got %s", req.targetLang)
+		}
+		if req.sourceText != "the grey havens" {
+			t.Errorf("unexpected sourceText: %q", req.sourceText)
+		}
+	})
+
+	t.Run("connector 'to' stripped before language keyword", func(t *testing.T) {
+		// "translate farewell my friend to quenya" — 'to quenya' must not
+		// leak into sourceText.
+		req := parseTranslateRequest(makeTestMessage("translate farewell my friend to quenya"))
+		if strings.Contains(req.sourceText, "quenya") {
+			t.Errorf("language keyword leaked into sourceText: %q", req.sourceText)
+		}
+		if strings.HasSuffix(strings.ToLower(req.sourceText), " to") {
+			t.Errorf("connector 'to' leaked into sourceText: %q", req.sourceText)
+		}
+		if req.sourceText != "farewell my friend" {
+			t.Errorf("sourceText: want %q, got %q", "farewell my friend", req.sourceText)
+		}
+	})
+
+	t.Run("quenya colon-style", func(t *testing.T) {
+		req := parseTranslateRequest(makeTestMessage("translate to quenya: a star shines"))
+		if req.targetLang != "q" {
+			t.Errorf("want lang=q, got %s", req.targetLang)
+		}
+		if req.sourceText != "a star shines" {
+			t.Errorf("sourceText: want %q, got %q", "a star shines", req.sourceText)
+		}
+	})
+
+	t.Run("nil message returns defaults", func(t *testing.T) {
+		req := parseTranslateRequest(nil)
+		if req.targetLang != "q" {
+			t.Errorf("nil: want default q, got %s", req.targetLang)
+		}
+	})
+}
+
+func TestConceptsFromText(t *testing.T) {
+	t.Run("basic extraction", func(t *testing.T) {
+		got := conceptsFromText("a star shines on the hour")
+		// stop words (a, on, the) filtered; short words filtered
+		for _, c := range got {
+			if len(c) < 3 {
+				t.Errorf("short token %q should be filtered", c)
+			}
+		}
+		found := false
+		for _, c := range got {
+			if c == "star" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("'star' should be in concepts, got %v", got)
+		}
+	})
+
+	t.Run("caps at 5", func(t *testing.T) {
+		got := conceptsFromText("star silver moon fire dragon warrior eagle throne")
+		if len(got) > 5 {
+			t.Errorf("expected cap at 5, got %d: %v", len(got), got)
+		}
+	})
+
+	t.Run("deduplicates", func(t *testing.T) {
+		got := conceptsFromText("star star star fire fire")
+		seen := map[string]int{}
+		for _, c := range got {
+			seen[c]++
+			if seen[c] > 1 {
+				t.Errorf("duplicate concept %q", c)
+			}
+		}
+	})
+
+	t.Run("empty input returns empty", func(t *testing.T) {
+		if got := conceptsFromText(""); len(got) != 0 {
+			t.Errorf("expected empty, got %v", got)
+		}
+	})
+}
+
+func TestTranslateEnabled(t *testing.T) {
+	t.Run("false when env unset", func(t *testing.T) {
+		orig := os.Getenv("GEMINI_TRANSLATE_MODEL")
+		if err := os.Setenv("GEMINI_TRANSLATE_MODEL", ""); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = os.Setenv("GEMINI_TRANSLATE_MODEL", orig) }()
+		if TranslateEnabled() {
+			t.Error("TranslateEnabled() should be false when GEMINI_TRANSLATE_MODEL is empty")
+		}
+	})
+	t.Run("true when env set", func(t *testing.T) {
+		orig := os.Getenv("GEMINI_TRANSLATE_MODEL")
+		if err := os.Setenv("GEMINI_TRANSLATE_MODEL", "gemini-test-model"); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = os.Setenv("GEMINI_TRANSLATE_MODEL", orig) }()
+		if !TranslateEnabled() {
+			t.Error("TranslateEnabled() should be true when GEMINI_TRANSLATE_MODEL is set")
+		}
+	})
 }

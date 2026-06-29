@@ -68,6 +68,7 @@ var defaultUserScopes = []string{
 	"agent:invoke",
 	"skill:name-generate",
 	"skill:translate",
+	"skill:neologism",
 }
 
 var listCmd = &cobra.Command{
@@ -237,7 +238,7 @@ func generateToken(uid string) (string, error) {
 		"sub": uid,
 		"scopes": []string{
 			"lexicon:read", "audio:generate",
-			"agent:invoke", "skill:name-generate", "skill:translate",
+			"agent:invoke", "skill:name-generate", "skill:translate", "skill:neologism",
 		},
 		"exp":  time.Now().Add(1 * time.Hour).Unix(),
 		"type": "access",

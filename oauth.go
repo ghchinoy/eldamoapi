@@ -60,7 +60,7 @@ var bypassClaims = jwt.MapClaims{
 	"type": "access",
 	"scopes": []interface{}{
 		"lexicon:read", "audio:generate",
-		"agent:invoke", "skill:name-generate", "skill:translate",
+		"agent:invoke", "skill:name-generate", "skill:translate", "skill:neologism",
 	},
 }
 
