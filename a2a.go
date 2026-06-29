@@ -6,11 +6,15 @@ import (
 	"iter"
 	"log"
 	"net/http"
+	"os"
 	"strings"
+	"sync"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
+	"github.com/ghchinoy/eldamoapi/skills"
+	"google.golang.org/genai"
 )
 
 // a2aBasePath is the HTTP path where the A2A JSON-RPC transport is mounted.
@@ -60,45 +64,106 @@ func (ci *claimsInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallCon
 	return ctx, nil, nil
 }
 
-// eldamoAgentExecutor dispatches incoming messages to the appropriate skill
-// executor based on intent detected in the message text. Scope checks for
-// per-skill gates happen here (coarse agent:invoke is already handled by
-// claimsInterceptor before Execute is called).
-//
-// Routing rules:
-//
-//	message starts with "name " OR contains a language keyword → name-generate
-//	everything else                                            → echo
-type eldamoAgentExecutor struct{}
+// ── GenAI client (package main, shared across skills via Deps) ────────────────
+
+var (
+	genaiOnce   sync.Once
+	genaiClient *genai.Client
+	genaiErr    error
+)
+
+// initGenAIClient lazily initialises the shared Vertex AI client.
+// Called when building Deps in newA2AHandler; nil is returned (and skills
+// self-disable) when GEMINI_TRANSLATE_MODEL is unset.
+func initGenAIClient() (*genai.Client, error) {
+	genaiOnce.Do(func() {
+		project := os.Getenv("GCP_PROJECT")
+		location := os.Getenv("GEMINI_LOCATION")
+		if location == "" {
+			location = "global"
+		}
+		log.Printf("[A2A] Initializing Vertex AI client (project=%s, location=%s)", project, location)
+		genaiClient, genaiErr = genai.NewClient(context.Background(), &genai.ClientConfig{
+			Project:  project,
+			Location: location,
+			Backend:  genai.BackendVertexAI,
+		})
+		if genaiErr != nil {
+			log.Printf("[A2A] Failed to create Vertex AI client: %v", genaiErr)
+		}
+	})
+	return genaiClient, genaiErr
+}
+
+// translateEnabled reports whether the LLM-backed skills are configured.
+func translateEnabled() bool {
+	return os.Getenv("GEMINI_TRANSLATE_MODEL") != ""
+}
+
+// translateModelName returns the configured Gemini model name.
+func translateModelName() string {
+	if m := os.Getenv("GEMINI_TRANSLATE_MODEL"); m != "" {
+		return m
+	}
+	return "gemini-3.1-flash-lite"
+}
+
+// buildDeps constructs the skills.Deps for the current process configuration.
+// If translate/neologism are disabled (no model env var), GenAI is nil and
+// those skills self-hide.
+func buildDeps() *skills.Deps {
+	d := &skills.Deps{
+		Index:       lexiconIndex,
+		TranslateMD: translateSkillMD,
+		NeologismMD: neologismSkillMD,
+		ModelName:   translateModelName(),
+	}
+	if translateEnabled() {
+		client, err := initGenAIClient()
+		if err != nil {
+			log.Printf("[A2A] Vertex AI client unavailable; LLM skills disabled: %v", err)
+		} else {
+			d.GenAI = client
+		}
+	}
+	return d
+}
+
+// ── Executor ──────────────────────────────────────────────────────────────────
+
+// eldamoAgentExecutor dispatches to skill executors via injected Deps.
+// Routing order matters: neologism/translate have specific prefixes and must
+// be checked before name-generate which fires on any language keyword.
+type eldamoAgentExecutor struct {
+	deps *skills.Deps
+}
 
 var _ a2asrv.AgentExecutor = (*eldamoAgentExecutor)(nil)
 
 func (e *eldamoAgentExecutor) Execute(ctx context.Context, execCtx *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
-	// Order matters: translate and neologism have specific trigger prefixes;
-	// check them before name-generate which fires on any language keyword.
-	if isNeologismRequest(execCtx.Message) {
-		if !TranslateEnabled() {
+	if skills.IsNeologismRequest(execCtx.Message) {
+		if !e.deps.LLMEnabled() {
 			return scopeRejection("")
 		}
 		if !hasScope(execCtx.User, "skill:neologism") {
 			return scopeRejection("skill:neologism")
 		}
-		return runNeologism(ctx, execCtx)
+		return skills.RunNeologism(ctx, execCtx, e.deps)
 	}
-	if isTranslateRequest(execCtx.Message) {
-		if !TranslateEnabled() {
+	if skills.IsTranslateRequest(execCtx.Message) {
+		if !e.deps.LLMEnabled() {
 			return scopeRejection("")
 		}
 		if !hasScope(execCtx.User, "skill:translate") {
 			return scopeRejection("skill:translate")
 		}
-		return runTranslate(ctx, execCtx)
+		return skills.RunTranslate(ctx, execCtx, e.deps)
 	}
-	if isNameRequest(execCtx.Message) {
+	if skills.IsNameRequest(execCtx.Message) {
 		if !hasScope(execCtx.User, "skill:name-generate") {
 			return scopeRejection("skill:name-generate")
 		}
-		return runNameGenerate(ctx, execCtx)
+		return skills.RunNameGenerate(ctx, execCtx, e.deps)
 	}
 	return runEcho(ctx, execCtx)
 }
@@ -118,7 +183,7 @@ func scopeRejection(scope string) iter.Seq2[a2a.Event, error] {
 	}
 }
 
-func (*eldamoAgentExecutor) Cancel(ctx context.Context, execCtx *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
+func (*eldamoAgentExecutor) Cancel(_ context.Context, _ *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
 	return func(yield func(a2a.Event, error) bool) {}
 }
 
@@ -225,7 +290,7 @@ func buildSkillList() []a2a.AgentSkill {
 			},
 		},
 	}
-	if TranslateEnabled() {
+	if translateEnabled() {
 		skills = append(skills, a2a.AgentSkill{
 			ID:          "neologism",
 			Name:        "Elvish Neologism Builder",
@@ -322,7 +387,7 @@ func newA2AHandler() http.Handler {
 	}
 
 	requestHandler := a2asrv.NewHandler(
-		&eldamoAgentExecutor{},
+		&eldamoAgentExecutor{deps: buildDeps()},
 		a2asrv.WithCallInterceptors(&claimsInterceptor{}),
 		a2asrv.WithTaskStore(store),
 	)

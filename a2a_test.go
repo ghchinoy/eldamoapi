@@ -8,7 +8,7 @@ package main
 //   TestA2AAuthGating           — full oauthMiddleware→sseLogging→A2AHandler chain: 401/401/200
 //   TestIsNameRequest           — routing predicate for the name-generate skill
 //   TestParseNameRequest        — language, gender, and concept extraction from message text
-//   TestCompoundingRules        — joinRoots (vowel elision + consonant assimilation), appendSuffix
+//   TestCompoundingRules        — skills.JoinRoots (vowel elision + consonant assimilation), skills.AppendSuffix
 //   TestIsUsableWord            — filters multi-word / empty lexicon entries
 //   TestExecutorScopeRejection  — missing skill:name-generate yields a clear rejection message
 
@@ -24,8 +24,8 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/ghchinoy/eldamoapi/index"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/ghchinoy/eldamoapi/skills"
 )
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
@@ -313,218 +313,6 @@ func TestA2AAuthGating(t *testing.T) {
 	})
 }
 
-// ── TestIsNameRequest ─────────────────────────────────────────────────────────
-
-func TestIsNameRequest(t *testing.T) {
-	cases := []struct {
-		text string
-		want bool
-	}{
-		{"name star silver quenya", true},
-		{"name grey flame", true},
-		{"ocean wisdom sindarin", true},  // contains language keyword
-		{"quenya", true},                 // language keyword alone triggers it
-		{"sindarin", true},
-		{"translate this phrase", false},
-		{"Namarie", false},
-		{"hello", false},
-		{"", false},
-		{"the quick brown fox", false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.text, func(t *testing.T) {
-			got := isNameRequest(makeTestMessage(tc.text))
-			if got != tc.want {
-				t.Errorf("isNameRequest(%q) = %v, want %v", tc.text, got, tc.want)
-			}
-		})
-	}
-
-	t.Run("nil message returns false", func(t *testing.T) {
-		if isNameRequest(nil) {
-			t.Error("isNameRequest(nil) should return false")
-		}
-	})
-}
-
-// ── TestParseNameRequest ──────────────────────────────────────────────────────
-
-func TestParseNameRequest(t *testing.T) {
-	t.Run("defaults: quenya masculine, single concept", func(t *testing.T) {
-		req := parseNameRequest(makeTestMessage("name star"))
-		if req.lang != "q" {
-			t.Errorf("lang: want q, got %s", req.lang)
-		}
-		if req.langName != "Quenya" {
-			t.Errorf("langName: want Quenya, got %s", req.langName)
-		}
-		if req.gender != "masculine" {
-			t.Errorf("gender: want masculine, got %s", req.gender)
-		}
-		if len(req.concepts) != 1 || req.concepts[0] != "star" {
-			t.Errorf("concepts: want [star], got %v", req.concepts)
-		}
-	})
-
-	t.Run("sindarin + feminine + two concepts", func(t *testing.T) {
-		req := parseNameRequest(makeTestMessage("name ocean wisdom feminine sindarin"))
-		if req.lang != "s" {
-			t.Errorf("lang: want s, got %s", req.lang)
-		}
-		if req.gender != "feminine" {
-			t.Errorf("gender: want feminine, got %s", req.gender)
-		}
-		if len(req.concepts) != 2 {
-			t.Errorf("concepts: want 2, got %v", req.concepts)
-		}
-	})
-
-	t.Run("caps concepts at 3", func(t *testing.T) {
-		req := parseNameRequest(makeTestMessage("name star silver moon fire dragon"))
-		if len(req.concepts) != 3 {
-			t.Errorf("expected 3 concepts (cap), got %d: %v", len(req.concepts), req.concepts)
-		}
-	})
-
-	t.Run("strips 'name ' trigger prefix", func(t *testing.T) {
-		req := parseNameRequest(makeTestMessage("name silver quenya"))
-		// 'quenya' → lang=q; 'silver' → concept (not a keyword)
-		for _, c := range req.concepts {
-			if c == "name" {
-				t.Error("'name' trigger word leaked into concepts")
-			}
-		}
-	})
-
-	t.Run("nil message gives sensible defaults", func(t *testing.T) {
-		req := parseNameRequest(nil)
-		if req.lang != "q" {
-			t.Errorf("nil: want default lang=q, got %s", req.lang)
-		}
-		if len(req.concepts) == 0 {
-			t.Error("nil: want at least one default concept")
-		}
-	})
-
-	t.Run("gender keyword aliases", func(t *testing.T) {
-		for _, word := range []string{"feminine", "female", "woman", "maiden", "daughter", "mother"} {
-			req := parseNameRequest(makeTestMessage("name star " + word))
-			if req.gender != "feminine" {
-				t.Errorf("%q: expected feminine, got %s", word, req.gender)
-			}
-		}
-		for _, word := range []string{"masculine", "male", "man", "father", "son"} {
-			req := parseNameRequest(makeTestMessage("name star " + word))
-			if req.gender != "masculine" {
-				t.Errorf("%q: expected masculine, got %s", word, req.gender)
-			}
-		}
-	})
-}
-
-// ── TestCompoundingRules ──────────────────────────────────────────────────────
-
-func TestCompoundingRules(t *testing.T) {
-	t.Run("basic concatenation (no special boundary)", func(t *testing.T) {
-		// 'n' + 'd': no vowel collision, no consonant rule → simple join
-		if got := joinRoots("elen", "dur"); got != "elendur" {
-			t.Errorf("joinRoots(elen, dur) = %q, want %q", got, "elendur")
-		}
-	})
-
-	t.Run("vowel elision: trailing vowel + leading vowel", func(t *testing.T) {
-		// moria ends in 'a' (vowel), elen starts with 'e' (vowel) → drop 'a' only
-		// "mori" + "elen" = "morielen"
-		if got := joinRoots("moria", "elen"); got != "morielen" {
-			t.Errorf("joinRoots(moria, elen) = %q, want %q", got, "morielen")
-		}
-	})
-
-	t.Run("n+l consonant assimilation → ll", func(t *testing.T) {
-		// elen (n) + lote (l) → "ele" + "ll" + "ote" = "elellote"
-		if got := joinRoots("elen", "lote"); got != "elellote" {
-			t.Errorf("joinRoots(elen, lote) = %q, want %q", got, "elellote")
-		}
-	})
-
-	t.Run("r+l consonant assimilation → ll", func(t *testing.T) {
-		// celebr (r) + lasse (l) → "celeb" + "ll" + "asse" = "celebllasse"
-		if got := joinRoots("celebr", "lasse"); got != "celebllasse" {
-			t.Errorf("joinRoots(celebr, lasse) = %q, want %q", got, "celebllasse")
-		}
-	})
-
-	t.Run("t+l consonant assimilation → ld", func(t *testing.T) {
-		// arat (t) + lasse (l) → "ara" + "ld" + "asse" = "araldasse"
-		if got := joinRoots("arat", "lasse"); got != "araldasse" {
-			t.Errorf("joinRoots(arat, lasse) = %q, want %q", got, "araldasse")
-		}
-	})
-
-	t.Run("empty first root returns second", func(t *testing.T) {
-		if got := joinRoots("", "elen"); got != "elen" {
-			t.Errorf("joinRoots(\"\", elen) = %q, want %q", got, "elen")
-		}
-	})
-
-	t.Run("empty second root returns first", func(t *testing.T) {
-		if got := joinRoots("elen", ""); got != "elen" {
-			t.Errorf("joinRoots(elen, \"\") = %q, want %q", got, "elen")
-		}
-	})
-
-	t.Run("appendSuffix: consonant base + consonant suffix (no elision)", func(t *testing.T) {
-		// celebr + ndil: r not vowel → simple join
-		if got := appendSuffix("celebr", "ndil"); got != "celebrndil" {
-			t.Errorf("appendSuffix(celebr, ndil) = %q, want %q", got, "celebrndil")
-		}
-	})
-
-	t.Run("appendSuffix: vowel base + vowel suffix → elide", func(t *testing.T) {
-		// arda (a) + iel (i vowel) → "ard" + "iel" = "ardiel"
-		if got := appendSuffix("arda", "iel"); got != "ardiel" {
-			t.Errorf("appendSuffix(arda, iel) = %q, want %q", got, "ardiel")
-		}
-	})
-
-	t.Run("capitalize", func(t *testing.T) {
-		cases := []struct{ in, want string }{
-			{"elen", "Elen"},
-			{"", ""},
-			{"Elen", "Elen"},
-			{"élf", "Élf"},
-		}
-		for _, tc := range cases {
-			if got := capitalize(tc.in); got != tc.want {
-				t.Errorf("capitalize(%q) = %q, want %q", tc.in, got, tc.want)
-			}
-		}
-	})
-}
-
-// ── TestIsUsableWord ──────────────────────────────────────────────────────────
-
-func TestIsUsableWord(t *testing.T) {
-	cases := []struct {
-		word *index.FlatWord
-		want bool
-	}{
-		{&index.FlatWord{Word: "elen"}, true},
-		{&index.FlatWord{Word: "mith"}, true},
-		{&index.FlatWord{Word: "active participle"}, false}, // multi-word grammatical label
-		{&index.FlatWord{Word: "verb form"}, false},         // multi-word
-		{&index.FlatWord{Word: ""}, false},                  // empty
-		{&index.FlatWord{Word: "naur"}, true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.word.Word, func(t *testing.T) {
-			if got := isUsableWord(tc.word); got != tc.want {
-				t.Errorf("isUsableWord(%q) = %v, want %v", tc.word.Word, got, tc.want)
-			}
-		})
-	}
-}
-
 // ── TestExecutorScopeRejection ────────────────────────────────────────────────
 
 // TestExecutorScopeRejection calls eldamoAgentExecutor.Execute directly with a
@@ -537,7 +325,7 @@ func TestExecutorScopeRejection(t *testing.T) {
 		Message: makeTestMessage("name star silver quenya"),
 	}
 
-	exec := &eldamoAgentExecutor{}
+	exec := &eldamoAgentExecutor{deps: &skills.Deps{Index: lexiconIndex}}
 	seq := exec.Execute(context.Background(), execCtx)
 
 	var events []a2a.Event
@@ -565,136 +353,6 @@ func TestExecutorScopeRejection(t *testing.T) {
 	}
 }
 
-// ── Translate skill tests (djk) ───────────────────────────────────────────────
-
-func TestIsTranslateRequest(t *testing.T) {
-	cases := []struct {
-		text string
-		want bool
-	}{
-		{"translate farewell to quenya", true},
-		{"translate to sindarin: the grey havens", true},
-		{"Translate This Phrase", true}, // case-insensitive
-		{"translation of namarie", false}, // "translation" ≠ "translate" prefix
-		{"name star silver quenya", false}, // name-generate, not translate
-		{"Namarie", false},
-		{"hello", false},
-		{"", false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.text, func(t *testing.T) {
-			got := isTranslateRequest(makeTestMessage(tc.text))
-			if got != tc.want {
-				t.Errorf("isTranslateRequest(%q) = %v, want %v", tc.text, got, tc.want)
-			}
-		})
-	}
-	t.Run("nil message returns false", func(t *testing.T) {
-		if isTranslateRequest(nil) {
-			t.Error("isTranslateRequest(nil) should be false")
-		}
-	})
-}
-
-func TestParseTranslateRequest(t *testing.T) {
-	t.Run("default: quenya target", func(t *testing.T) {
-		req := parseTranslateRequest(makeTestMessage("translate hello"))
-		if req.targetLang != "q" {
-			t.Errorf("want lang=q, got %s", req.targetLang)
-		}
-		if req.targetName != "Quenya" {
-			t.Errorf("want Quenya, got %s", req.targetName)
-		}
-	})
-
-	t.Run("sindarin keyword detected", func(t *testing.T) {
-		req := parseTranslateRequest(makeTestMessage("translate to sindarin: the grey havens"))
-		if req.targetLang != "s" {
-			t.Errorf("want lang=s, got %s", req.targetLang)
-		}
-		if req.sourceText != "the grey havens" {
-			t.Errorf("unexpected sourceText: %q", req.sourceText)
-		}
-	})
-
-	t.Run("connector 'to' stripped before language keyword", func(t *testing.T) {
-		// "translate farewell my friend to quenya" — 'to quenya' must not
-		// leak into sourceText.
-		req := parseTranslateRequest(makeTestMessage("translate farewell my friend to quenya"))
-		if strings.Contains(req.sourceText, "quenya") {
-			t.Errorf("language keyword leaked into sourceText: %q", req.sourceText)
-		}
-		if strings.HasSuffix(strings.ToLower(req.sourceText), " to") {
-			t.Errorf("connector 'to' leaked into sourceText: %q", req.sourceText)
-		}
-		if req.sourceText != "farewell my friend" {
-			t.Errorf("sourceText: want %q, got %q", "farewell my friend", req.sourceText)
-		}
-	})
-
-	t.Run("quenya colon-style", func(t *testing.T) {
-		req := parseTranslateRequest(makeTestMessage("translate to quenya: a star shines"))
-		if req.targetLang != "q" {
-			t.Errorf("want lang=q, got %s", req.targetLang)
-		}
-		if req.sourceText != "a star shines" {
-			t.Errorf("sourceText: want %q, got %q", "a star shines", req.sourceText)
-		}
-	})
-
-	t.Run("nil message returns defaults", func(t *testing.T) {
-		req := parseTranslateRequest(nil)
-		if req.targetLang != "q" {
-			t.Errorf("nil: want default q, got %s", req.targetLang)
-		}
-	})
-}
-
-func TestConceptsFromText(t *testing.T) {
-	t.Run("basic extraction", func(t *testing.T) {
-		got := conceptsFromText("a star shines on the hour")
-		// stop words (a, on, the) filtered; short words filtered
-		for _, c := range got {
-			if len(c) < 3 {
-				t.Errorf("short token %q should be filtered", c)
-			}
-		}
-		found := false
-		for _, c := range got {
-			if c == "star" {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("'star' should be in concepts, got %v", got)
-		}
-	})
-
-	t.Run("caps at 5", func(t *testing.T) {
-		got := conceptsFromText("star silver moon fire dragon warrior eagle throne")
-		if len(got) > 5 {
-			t.Errorf("expected cap at 5, got %d: %v", len(got), got)
-		}
-	})
-
-	t.Run("deduplicates", func(t *testing.T) {
-		got := conceptsFromText("star star star fire fire")
-		seen := map[string]int{}
-		for _, c := range got {
-			seen[c]++
-			if seen[c] > 1 {
-				t.Errorf("duplicate concept %q", c)
-			}
-		}
-	})
-
-	t.Run("empty input returns empty", func(t *testing.T) {
-		if got := conceptsFromText(""); len(got) != 0 {
-			t.Errorf("expected empty, got %v", got)
-		}
-	})
-}
-
 func TestTranslateEnabled(t *testing.T) {
 	t.Run("false when env unset", func(t *testing.T) {
 		orig := os.Getenv("GEMINI_TRANSLATE_MODEL")
@@ -702,7 +360,7 @@ func TestTranslateEnabled(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = os.Setenv("GEMINI_TRANSLATE_MODEL", orig) }()
-		if TranslateEnabled() {
+		if translateEnabled() {
 			t.Error("TranslateEnabled() should be false when GEMINI_TRANSLATE_MODEL is empty")
 		}
 	})
@@ -712,7 +370,7 @@ func TestTranslateEnabled(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = os.Setenv("GEMINI_TRANSLATE_MODEL", orig) }()
-		if !TranslateEnabled() {
+		if !translateEnabled() {
 			t.Error("TranslateEnabled() should be true when GEMINI_TRANSLATE_MODEL is set")
 		}
 	})
