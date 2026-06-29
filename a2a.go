@@ -117,19 +117,58 @@ func runEcho(_ context.Context, execCtx *a2asrv.ExecutorContext) iter.Seq2[a2a.E
 	}
 }
 
+// mithlondOAuthSchemeName is the key used for the OAuth2 security scheme in the
+// AgentCard. Clients discover authorize/token endpoints and required scopes from it.
+const mithlondOAuthSchemeName a2a.SecuritySchemeName = "mithlond-oauth"
+
+// allScopes is the canonical scope vocabulary for this server.
+// Populated once here so the AgentCard and eldamo-admin stay in sync.
+var allScopes = map[string]string{
+	"lexicon:read":        "Search and read the Eldamo Tolkien lexicon",
+	"audio:generate":      "Synthesize Elvish pronunciation audio via the TTS proxy",
+	"agent:invoke":        "Send messages to the Eldamo A2A agent",
+	"skill:name-generate": "Use the Elvish name-generation skill",
+	"skill:translate":     "Use the Elvish translation skill (forthcoming)",
+}
+
 // buildAgentCard constructs the public AgentCard for the given absolute base URL
-// (e.g. "https://host"). The JSON-RPC interface URL is derived from the base URL.
+// (e.g. "https://host"). The JSON-RPC interface URL and the OAuth token endpoint
+// are both derived from the base URL; the authorize endpoint lives on the
+// Firebase-hosted consent SPA and is always the same fixed URL.
 func buildAgentCard(baseURL string) *a2a.AgentCard {
 	return &a2a.AgentCard{
 		Name:        "Eldamo Elvish Agent",
-		Description: "Agentic access to Paul Strack's Eldamo Tolkien-language lexicon: search, derivations, and (forthcoming) name-generation and translation skills.",
-		Version:     "0.2.0",
+		Description: "Agentic access to Paul Strack's Eldamo Tolkien-language lexicon: search, derivations, name-generation, and (forthcoming) translation skills.",
+		Version:     "0.3.0",
 		SupportedInterfaces: []*a2a.AgentInterface{
 			a2a.NewAgentInterface(baseURL+a2aBasePath, a2a.TransportProtocolJSONRPC),
 		},
 		DefaultInputModes:  []string{"text"},
 		DefaultOutputModes: []string{"text"},
 		Capabilities:       a2a.AgentCapabilities{Streaming: true},
+
+		// SecuritySchemes declares *how* to authenticate.
+		// Clients read this to discover the OAuth endpoints and available scopes.
+		SecuritySchemes: a2a.NamedSecuritySchemes{
+			mithlondOAuthSchemeName: a2a.OAuth2SecurityScheme{
+				Flows: a2a.AuthorizationCodeOAuthFlow{
+					// Consent SPA — lives on Firebase Hosting, not Cloud Run.
+					AuthorizationURL: "https://www.mithlond.com/mcp-auth",
+					// Token endpoint — same host as this agent.
+					TokenURL:     baseURL + "/api/oauth/token",
+					PKCERequired: true,
+					Scopes:       allScopes,
+				},
+			},
+		},
+
+		// SecurityRequirements declares *which* scheme+scopes are required for
+		// every call to this agent. agent:invoke is the coarse gate enforced by
+		// claimsInterceptor; per-skill gates are declared on each AgentSkill below.
+		SecurityRequirements: a2a.SecurityRequirementsOptions{
+			{mithlondOAuthSchemeName: {"agent:invoke"}},
+		},
+
 		Skills: []a2a.AgentSkill{
 			{
 				ID:          "name-generate",
@@ -142,11 +181,15 @@ func buildAgentCard(baseURL string) *a2a.AgentCard {
 					"name ocean wisdom feminine sindarin",
 					"name strong mountain masculine quenya",
 				},
+				// skill:name-generate is required *in addition* to agent:invoke.
+				SecurityRequirements: a2a.SecurityRequirementsOptions{
+					{mithlondOAuthSchemeName: {"agent:invoke", "skill:name-generate"}},
+				},
 			},
 			{
 				ID:          "echo",
 				Name:        "Echo",
-				Description: "Diagnostic: echoes the supplied text back.",
+				Description: "Diagnostic: echoes the supplied text back. Requires only agent:invoke.",
 				Tags:        []string{"diagnostic"},
 				Examples:    []string{"hello", "Namarie"},
 			},

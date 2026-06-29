@@ -54,10 +54,20 @@ func getFirebaseAuthClient() (*auth.Client, error) {
 }
 
 func main() {
-	rootCmd.AddCommand(listCmd, addCmd, preRegisterCmd, grantCmd, revokeScopeCmd, tokenCmd)
+	rootCmd.AddCommand(listCmd, addCmd, preRegisterCmd, grantCmd, revokeScopeCmd, grantAllCmd, tokenCmd)
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// defaultUserScopes is the canonical baseline scope set granted to every new
+// user. Keep this in sync with allScopes in a2a.go.
+var defaultUserScopes = []string{
+	"lexicon:read",
+	"audio:generate",
+	"agent:invoke",
+	"skill:name-generate",
+	"skill:translate",
 }
 
 var listCmd = &cobra.Command{
@@ -89,7 +99,7 @@ var addCmd = &cobra.Command{
 		uid, email := args[0], args[1]
 		_, err = client.Collection("authorized_users").Doc(uid).Set(context.Background(), map[string]interface{}{
 			"uid": uid, "email": email, "active": true, "roles": []string{"user"},
-			"scopes": []string{"lexicon:read", "agent:invoke"},
+			"scopes": defaultUserScopes,
 		})
 		if err != nil { log.Fatal(err) }
 		fmt.Printf("Added %s\n", email)
@@ -111,7 +121,7 @@ var preRegisterCmd = &cobra.Command{
 			"email":  email,
 			"active": false, // Inactive until first login
 			"roles":  []string{"user"},
-			"scopes": []string{"lexicon:read", "audio:generate", "agent:invoke"},
+			"scopes": defaultUserScopes,
 		})
 		if err != nil { log.Fatal(err) }
 		fmt.Printf("User '%s' pre-registered. They will be activated upon first login.\n", email)
@@ -157,6 +167,52 @@ var revokeScopeCmd = &cobra.Command{
 		})
 		if err != nil { log.Fatalf("Failed to revoke scope: %v", err) }
 		fmt.Printf("Revoked scope '%s' from user %s\n", scope, uid)
+	},
+}
+
+// grantAllCmd grants one or more scopes to every user in authorized_users using
+// ArrayUnion — idempotent and safe to re-run. Use this as the deploy-day
+// migration step whenever a new scope is added to defaultUserScopes.
+//
+// Usage: eldamo-admin grant-all <scope> [scope...]
+// Example: eldamo-admin grant-all skill:name-generate skill:translate
+var grantAllCmd = &cobra.Command{
+	Use:   "grant-all <scope> [scope...]",
+	Short: "Grant one or more scopes to ALL authorized users (idempotent)",
+	Args:  cobra.MinimumNArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		client, err := getFirestoreClient()
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer func() { _ = client.Close() }()
+
+		ctx := context.Background()
+
+		// Convert scope strings to []interface{} for ArrayUnion.
+		unionValues := make([]interface{}, len(args))
+		for i, s := range args {
+			unionValues[i] = s
+		}
+		update := []firestore.Update{
+			{Path: "scopes", Value: firestore.ArrayUnion(unionValues...)},
+		}
+
+		iter := client.Collection("authorized_users").Documents(ctx)
+		updated := 0
+		for {
+			doc, err := iter.Next()
+			if err != nil {
+				break
+			}
+			if _, err = doc.Ref.Update(ctx, update); err != nil {
+				log.Printf("Failed to update %s: %v", doc.Ref.ID, err)
+				continue
+			}
+			updated++
+			fmt.Printf("  ✓ %s\n", doc.Ref.ID)
+		}
+		fmt.Printf("Granted %v to %d user(s).\n", args, updated)
 	},
 }
 
