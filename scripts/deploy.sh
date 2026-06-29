@@ -93,6 +93,14 @@ gcloud projects add-iam-policy-binding "$GCP_PROJECT" \
     --role="roles/datastore.user" \
     --quiet &>/dev/null || echo "Warning: failed to bind datastore.user role (ensure you have project owner/admin permissions)."
 
+# Firestore composite index for a2a_tasks (user + updatedAt) — required for
+# the List method of the Firestore taskstore. Create once; idempotent after.
+# gcloud firestore indexes composite create \
+#   --project="$GCP_PROJECT" --database=mithlond-services \
+#   --collection-group=a2a_tasks \
+#   --field-config=field-path=user,order=ascending \
+#   --field-config=field-path=updatedAt,order=descending
+
 # roles/aiplatform.user — call Vertex AI (Gemini) for the translate skill.
 # Only required when GEMINI_TRANSLATE_MODEL is set; binding is idempotent.
 echo "Ensuring Vertex AI User role is bound to service account..."

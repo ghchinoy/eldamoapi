@@ -10,6 +10,7 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 )
 
 // a2aBasePath is the HTTP path where the A2A JSON-RPC transport is mounted.
@@ -301,10 +302,29 @@ func handleAgentCard(w http.ResponseWriter, r *http.Request) {
 // newA2AHandler builds the transport-agnostic A2A request handler and wraps it
 // in the JSON-RPC HTTP transport binding. Returned as a plain http.Handler so it
 // can be mounted on the shared mux behind the existing oauthMiddleware.
+//
+// Task store selection:
+//   - When firestoreClient is available (Cloud Run or local with Firebase
+//     credentials), tasks are persisted in Firestore (a2a_tasks collection).
+//     This enables get_task / subscribe / list_tasks to work across
+//     Cloud Run instances and restarts.
+//   - When firestoreClient is nil (AUTH_BYPASS local dev without credentials),
+//     falls back to the in-memory store, which is correct for single-process
+//     testing but loses tasks on restart.
 func newA2AHandler() http.Handler {
+	var store taskstore.Store
+	if firestoreClient != nil {
+		store = NewFirestoreTaskStore(firestoreClient, a2asrv.NewTaskStoreAuthenticator())
+		log.Println("[A2A] Using Firestore task store (a2a_tasks collection)")
+	} else {
+		store = taskstore.NewInMemory(nil)
+		log.Println("[A2A] Using in-memory task store (no Firestore client)")
+	}
+
 	requestHandler := a2asrv.NewHandler(
 		&eldamoAgentExecutor{},
 		a2asrv.WithCallInterceptors(&claimsInterceptor{}),
+		a2asrv.WithTaskStore(store),
 	)
 	return a2asrv.NewJSONRPCHandler(requestHandler)
 }
