@@ -12,6 +12,8 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 )
 
+
+
 // a2aBasePath is the HTTP path where the A2A JSON-RPC transport is mounted.
 const a2aBasePath = "/a2a"
 
@@ -73,19 +75,39 @@ type eldamoAgentExecutor struct{}
 var _ a2asrv.AgentExecutor = (*eldamoAgentExecutor)(nil)
 
 func (e *eldamoAgentExecutor) Execute(ctx context.Context, execCtx *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
+	// Check translate before name-generate: "translate X to quenya" contains
+	// a language keyword that would otherwise falsely trigger isNameRequest.
+	if isTranslateRequest(execCtx.Message) {
+		if !TranslateEnabled() {
+			return scopeRejection("")
+		}
+		if !hasScope(execCtx.User, "skill:translate") {
+			return scopeRejection("skill:translate")
+		}
+		return runTranslate(ctx, execCtx)
+	}
 	if isNameRequest(execCtx.Message) {
-		// Per-skill scope gate: skill:name-generate required.
 		if !hasScope(execCtx.User, "skill:name-generate") {
-			return func(yield func(a2a.Event, error) bool) {
-				// Yield a plain Message (no task registration needed for rejections).
-				msg := a2a.NewMessage(a2a.MessageRoleAgent,
-					a2a.NewTextPart("Insufficient scope: skill:name-generate is required to use the name-generation skill."))
-				yield(msg, nil)
-			}
+			return scopeRejection("skill:name-generate")
 		}
 		return runNameGenerate(ctx, execCtx)
 	}
 	return runEcho(ctx, execCtx)
+}
+
+// scopeRejection returns an executor func that yields a plain rejection Message.
+// Using a bare *Message (no task registration) keeps the response simple and
+// avoids the task state-machine complexity for client-rejected calls.
+func scopeRejection(scope string) iter.Seq2[a2a.Event, error] {
+	return func(yield func(a2a.Event, error) bool) {
+		var text string
+		if scope == "" {
+			text = "This skill is not currently available on this server."
+		} else {
+			text = fmt.Sprintf("Insufficient scope: %s is required for this skill.", scope)
+		}
+		yield(a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart(text)), nil)
+	}
 }
 
 func (*eldamoAgentExecutor) Cancel(ctx context.Context, execCtx *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
@@ -169,32 +191,55 @@ func buildAgentCard(baseURL string) *a2a.AgentCard {
 			{mithlondOAuthSchemeName: {"agent:invoke"}},
 		},
 
-		Skills: []a2a.AgentSkill{
-			{
-				ID:          "name-generate",
-				Name:        "Elvish Name Generator",
-				Description: "Generates grammatically authentic Quenya or Sindarin names by searching the Eldamo lexicon for roots matching concept keywords and applying historical compounding rules.",
-				Tags:        []string{"linguistics", "names", "quenya", "sindarin", "tolkien"},
-				Examples: []string{
-					"name star silver quenya",
-					"name grey flame sindarin",
-					"name ocean wisdom feminine sindarin",
-					"name strong mountain masculine quenya",
-				},
-				// skill:name-generate is required *in addition* to agent:invoke.
-				SecurityRequirements: a2a.SecurityRequirementsOptions{
-					{mithlondOAuthSchemeName: {"agent:invoke", "skill:name-generate"}},
-				},
+		Skills: buildSkillList(),
+	}
+}
+
+// buildSkillList assembles the AgentCard skills slice. The translate skill is
+// included only when GEMINI_TRANSLATE_MODEL is set; otherwise it self-hides,
+// matching the ELVISH_TTS_URL / render_elvish_audio conditional pattern.
+func buildSkillList() []a2a.AgentSkill {
+	skills := []a2a.AgentSkill{
+		{
+			ID:          "name-generate",
+			Name:        "Elvish Name Generator",
+			Description: "Generates grammatically authentic Quenya or Sindarin names by searching the Eldamo lexicon for roots matching concept keywords and applying historical compounding rules.",
+			Tags:        []string{"linguistics", "names", "quenya", "sindarin", "tolkien"},
+			Examples: []string{
+				"name star silver quenya",
+				"name grey flame sindarin",
+				"name ocean wisdom feminine sindarin",
+				"name strong mountain masculine quenya",
 			},
-			{
-				ID:          "echo",
-				Name:        "Echo",
-				Description: "Diagnostic: echoes the supplied text back. Requires only agent:invoke.",
-				Tags:        []string{"diagnostic"},
-				Examples:    []string{"hello", "Namarie"},
+			SecurityRequirements: a2a.SecurityRequirementsOptions{
+				{mithlondOAuthSchemeName: {"agent:invoke", "skill:name-generate"}},
 			},
 		},
 	}
+	if TranslateEnabled() {
+		skills = append(skills, a2a.AgentSkill{
+			ID:          "translate",
+			Name:        "Elvish Translator",
+			Description: "Translates English text into Quenya or Sindarin, applying correct morphology, case endings, and consonant mutations. Backed by Gemini with Eldamo lexicon context.",
+			Tags:        []string{"linguistics", "translation", "quenya", "sindarin", "tolkien"},
+			Examples: []string{
+				"translate farewell my friend to quenya",
+				"translate to sindarin: the grey havens",
+				"translate a star shines on the hour of our meeting to quenya",
+			},
+			SecurityRequirements: a2a.SecurityRequirementsOptions{
+				{mithlondOAuthSchemeName: {"agent:invoke", "skill:translate"}},
+			},
+		})
+	}
+	skills = append(skills, a2a.AgentSkill{
+		ID:          "echo",
+		Name:        "Echo",
+		Description: "Diagnostic: echoes the supplied text back. Requires only agent:invoke.",
+		Tags:        []string{"diagnostic"},
+		Examples:    []string{"hello", "Namarie"},
+	})
+	return skills
 }
 
 // requestBaseURL derives the public scheme://host for the current request,

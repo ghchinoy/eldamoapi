@@ -86,21 +86,32 @@ else
     echo "✓ Service account exists."
 fi
 
-# Note: The service account requires roles/datastore.user for writing/reading
-# temporary OAuth authorization codes to Firestore.
+# roles/datastore.user — write/read Firestore (OAuth codes, authorized_users).
 echo "Ensuring Datastore User role is bound to service account..."
 gcloud projects add-iam-policy-binding "$GCP_PROJECT" \
     --member="serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
     --role="roles/datastore.user" \
     --quiet &>/dev/null || echo "Warning: failed to bind datastore.user role (ensure you have project owner/admin permissions)."
 
+# roles/aiplatform.user — call Vertex AI (Gemini) for the translate skill.
+# Only required when GEMINI_TRANSLATE_MODEL is set; binding is idempotent.
+echo "Ensuring Vertex AI User role is bound to service account..."
+gcloud projects add-iam-policy-binding "$GCP_PROJECT" \
+    --member="serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
+    --role="roles/aiplatform.user" \
+    --quiet &>/dev/null || echo "Warning: failed to bind aiplatform.user role (ensure you have project owner/admin permissions)."
+
 # -----------------------------------------------------------------------------
 # Build and Deploy
 # -----------------------------------------------------------------------------
-ENV_VARS="FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID,FIREBASE_DATABASE=$FIREBASE_DATABASE,JWT_SIGNING_KEY=$JWT_SIGNING_KEY,CACHE_BUSTER=$(date +%s)"
+ENV_VARS="FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID,FIREBASE_DATABASE=$FIREBASE_DATABASE,JWT_SIGNING_KEY=$JWT_SIGNING_KEY,GCP_PROJECT=$GCP_PROJECT,GCP_REGION=$GCP_REGION,CACHE_BUSTER=$(date +%s)"
 if [ -n "${ELVISH_TTS_URL:-}" ]; then
     ENV_VARS="$ENV_VARS,ELVISH_TTS_URL=$ELVISH_TTS_URL"
     echo "-> Configured with TTS Service URL: $ELVISH_TTS_URL"
+fi
+if [ -n "${GEMINI_TRANSLATE_MODEL:-}" ]; then
+    ENV_VARS="$ENV_VARS,GEMINI_TRANSLATE_MODEL=$GEMINI_TRANSLATE_MODEL"
+    echo "-> Configured Gemini translate model: $GEMINI_TRANSLATE_MODEL"
 fi
 
 echo "Deploying with environment variables: FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID, FIREBASE_DATABASE=$FIREBASE_DATABASE"
