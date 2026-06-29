@@ -150,6 +150,81 @@ same `oauthMiddleware`.
 
 ---
 
+## 🗄️ Firestore Collections & One-Time Setup
+
+The server uses the **`mithlond-services`** named database (not `(default)`). Three
+collections exist; two require one-time infrastructure setup.
+
+### Collection inventory
+
+| Collection | Purpose | Created by | Visible in console? |
+| :--- | :--- | :--- | :--- |
+| `authorized_users` | OAuth user authorization records | `eldamo-admin add/pre-register` | Always (has permanent documents) |
+| `mcp_auth_codes` | 5-minute PKCE authorization codes | OAuth callback handler | Only during an active OAuth flow; disappears when empty |
+| `a2a_tasks` | A2A task state, history, and artifacts | First A2A request after deploy | Only when ≥ 1 document exists (see below) |
+
+### Why `a2a_tasks` appears lazily
+
+Firestore collections only show up in the Firebase console when they contain at
+least one document. The `a2a_tasks` collection is new as of l04.5 and will be
+invisible until the first A2A request reaches the production server. The
+`go test -v -run "TestTaskstore"` integration tests create and then *delete*
+their documents via `t.Cleanup`, so the collection will appear empty (and may
+vanish from the console view) after the test suite finishes.
+
+**To verify the collection exists:** send any message through `a2acli` against
+the deployed server, then refresh the Firestore console.
+
+```bash
+set -a; source .env; set +a
+a2acli send "Namarie" \
+  --service-url https://candir.mithlond.com \
+  --transport jsonrpc --wait --token "$(make token)"
+# -> refresh mithlond-services in Firestore console; a2a_tasks should appear
+```
+
+### One-time: composite index for `a2a_tasks`
+
+Required for the `List` method (`WHERE user ORDER BY updatedAt`). Created once;
+idempotent. Index state can be checked with the second command.
+
+```bash
+gcloud firestore indexes composite create \
+  --project=testingproject-19c4c \
+  --database=mithlond-services \
+  --collection-group=a2a_tasks \
+  --field-config=field-path=user,order=ascending \
+  --field-config=field-path=updatedAt,order=descending
+
+# Check status (wait for READY before running taskstore tests):
+gcloud firestore indexes composite list \
+  --project=testingproject-19c4c \
+  --database=mithlond-services \
+  --quiet | grep a2a_tasks
+```
+
+### One-time: TTL policy for `a2a_tasks`
+
+The `expiresAt` field is written on every task document (7 days from creation/update),
+but Firestore only acts on it once a TTL policy is registered for that field.
+Without this step, old task documents accumulate indefinitely.
+
+```bash
+gcloud firestore fields ttls update expiresAt \
+  --collection-group=a2a_tasks \
+  --enable-ttl \
+  --database=mithlond-services \
+  --project=testingproject-19c4c
+```
+
+TTL deletion is best-effort and typically runs within 24 hours of `expiresAt`.
+This command is idempotent — safe to re-run.
+
+> Both the index and TTL commands are also documented as comments in
+> `scripts/deploy.sh` for reference during infrastructure setup.
+
+---
+
 ## 🧪 Testing and Static Analysis
 
 Always run the test suite and static code linter to verify your changes before creating a pull request or pushing tags.
