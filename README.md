@@ -235,14 +235,16 @@ Local configurations are managed in a **`.env`** file at the project root. This 
 
 The backend uses the following environment variables, evaluated with fallback/precedence logic:
 
-| Variable Name | Purpose | fallback / Precedence Logic |
+| Variable Name | Purpose | Fallback / Precedence Logic |
 | :--- | :--- | :--- |
 | `GCP_PROJECT` | Google Cloud project ID. | Sourced from `.env`; defaults to `testingproject-19c4c` during build. |
-| `GCP_REGION` | Cloud Run container region. | Sourced from `.env`; defaults to `us-central1`. |
+| `GCP_REGION` | Cloud Run **deployment** region (`gcloud run deploy --region`). | Sourced from `.env`; defaults to `us-central1`. Not passed to the container. |
 | `SERVICE_NAME`| Cloud Run deployment name. | Sourced from `.env`; defaults to `eldamo-mcp-server`. |
 | `FIREBASE_PROJECT_ID` | Project ID for Firebase Admin verification. | Matches `GCP_PROJECT`. Defaults to `testingproject-19c4c`. |
 | `FIREBASE_DATABASE` | Targets specific Firestore DB instance. | Sourced from `.env`; defaults to **`mithlond-services`** (NOT `(default)`). |
 | `JWT_SIGNING_KEY` | Cryptographic key to sign/verify stateless tokens. | Sourced from `.env`; **dynamically generated as a random 32-char hex string** on first deploy if missing. |
+| `GEMINI_LOCATION` | Vertex AI **API location** for Gemini skills. Separate from `GCP_REGION` — newer models (gemini-3.x) require `global`; older models work with `us-central1`. | Defaults to `global`. |
+| `GEMINI_TRANSLATE_MODEL` | Gemini model for the translate and neologism skills. When unset, both skills self-hide from the AgentCard and executor. | None — skills disabled if missing. |
 
 
 ## 🚀 Cloud Run Deployment

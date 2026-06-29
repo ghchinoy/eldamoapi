@@ -19,8 +19,9 @@ package main
 // Trigger: message starts with "translate" (case-insensitive).
 //
 // Required env vars:
-//   GCP_PROJECT            — GCP project ID (reused from Firebase / deploy.sh)
-//   GCP_REGION             — GCP region (reused from deploy.sh, default us-central1)
+//   GCP_PROJECT            — GCP project ID (shared with Firebase / deploy.sh)
+//   GEMINI_LOCATION        — Vertex AI API location (default "global"; separate
+//                            from GCP_REGION which is the Cloud Run deploy region)
 //   GEMINI_TRANSLATE_MODEL — Vertex AI model name; skill self-hides if unset
 //
 // Skill scope: skill:translate
@@ -80,9 +81,9 @@ var (
 func getGenAIClient() (*genai.Client, error) {
 	genaiOnce.Do(func() {
 		project := os.Getenv("GCP_PROJECT")
-		location := os.Getenv("GCP_REGION")
+		location := os.Getenv("GEMINI_LOCATION")
 		if location == "" {
-			location = "global"
+			location = "global" // default: newer Gemini models require the global endpoint
 		}
 		log.Printf("[Translate] Initializing Vertex AI client (project=%s, location=%s)", project, location)
 		genaiClient, genaiErr = genai.NewClient(context.Background(), &genai.ClientConfig{

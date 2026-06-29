@@ -104,7 +104,11 @@ gcloud projects add-iam-policy-binding "$GCP_PROJECT" \
 # -----------------------------------------------------------------------------
 # Build and Deploy
 # -----------------------------------------------------------------------------
-ENV_VARS="FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID,FIREBASE_DATABASE=$FIREBASE_DATABASE,JWT_SIGNING_KEY=$JWT_SIGNING_KEY,GCP_PROJECT=$GCP_PROJECT,GCP_REGION=$GCP_REGION,CACHE_BUSTER=$(date +%s)"
+# GEMINI_LOCATION is the Vertex AI API location for Gemini skills (separate from
+# GCP_REGION which is the Cloud Run deploy region). Newer models (gemini-3.x) use
+# "global"; regional endpoints (us-central1) serve older model generations.
+GEMINI_LOCATION="${GEMINI_LOCATION:-global}"
+ENV_VARS="FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID,FIREBASE_DATABASE=$FIREBASE_DATABASE,JWT_SIGNING_KEY=$JWT_SIGNING_KEY,GCP_PROJECT=$GCP_PROJECT,GEMINI_LOCATION=$GEMINI_LOCATION,CACHE_BUSTER=$(date +%s)"
 if [ -n "${ELVISH_TTS_URL:-}" ]; then
     ENV_VARS="$ENV_VARS,ELVISH_TTS_URL=$ELVISH_TTS_URL"
     echo "-> Configured with TTS Service URL: $ELVISH_TTS_URL"
