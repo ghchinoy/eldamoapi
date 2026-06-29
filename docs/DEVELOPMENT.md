@@ -172,15 +172,21 @@ invisible until the first A2A request reaches the production server. The
 their documents via `t.Cleanup`, so the collection will appear empty (and may
 vanish from the console view) after the test suite finishes.
 
-**To verify the collection exists:** send any message through `a2acli` against
-the deployed server, then refresh the Firestore console.
+**To verify the collection exists:** send a **skill** request through `a2acli`
+against the deployed server, then refresh the Firestore console.
+
+> **Important:** Use a skill (`name-generate`, `translate`, `neologism`), **not**
+> a plain message like `"Namarie"`. The `echo` fallback returns a bare `*Message`
+> and bypasses the task state machine — it creates no Firestore document and
+> returns an empty `Task ID:`. Only the three skills call `NewSubmittedTask`,
+> write to `a2a_tasks`, and return a real Task ID.
 
 ```bash
 set -a; source .env; set +a
-a2acli send "Namarie" \
+a2acli send "name star quenya" \
   --service-url https://candir.mithlond.com \
   --transport jsonrpc --wait --token "$(make token)"
-# -> refresh mithlond-services in Firestore console; a2a_tasks should appear
+# -> Task ID: 019f...   ← non-empty; refresh Firestore console to see the document
 ```
 
 ### One-time: composite index for `a2a_tasks`

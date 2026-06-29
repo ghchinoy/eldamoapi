@@ -225,6 +225,12 @@ a2acli send "coin a word for artificial intelligence sindarin" \
 The Firestore task store enables `get`, `subscribe`, and `list tasks` to work
 across Cloud Run instances and restarts.
 
+> **Which skills create tasks?** Only `name-generate`, `translate`, and `neologism`
+> go through the task state machine (`NewSubmittedTask` → Firestore write → Task ID
+> returned). The `echo` fallback yields a bare `*Message` and creates no task — it
+> will show `Task ID: ` empty and nothing is written to `a2a_tasks`. Always use a
+> skill, not echo, when testing the taskstore.
+
 **Verify the store is active** (check server startup log):
 ```bash
 grep "Firestore task store\|in-memory task store" <server log>

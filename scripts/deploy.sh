@@ -166,7 +166,9 @@ echo "Custom domain:  https://candir.mithlond.com"
 echo "MCP endpoint:   https://candir.mithlond.com/sse"
 echo "A2A endpoint:   https://candir.mithlond.com/a2a"
 echo "AgentCard:      https://candir.mithlond.com/.well-known/agent-card.json"
-echo "Raw Cloud Run:  $(gcloud run services describe $SERVICE_NAME --region $GCP_REGION --format='value(status.url)' 2>/dev/null || echo '(run gcloud describe to get it)')"
+_RAW_URL=$(gcloud run services describe "$SERVICE_NAME" --region "$GCP_REGION" \
+    --format="value(status.url)" 2>/dev/null || echo "(run: gcloud run services describe $SERVICE_NAME --region $GCP_REGION)")
+echo "Raw Cloud Run:  $_RAW_URL"
 echo "========================================="
 echo "Note: DNS CNAME candir.mithlond.com → ghs.googlehosted.com"
 echo "  Domain mapping: gcloud run domain-mappings describe --domain candir.mithlond.com --region $GCP_REGION"
