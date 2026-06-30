@@ -21,7 +21,7 @@ The backend evaluates the following variables on startup:
 | `FIREBASE_PROJECT_ID` | Project ID for Firebase Admin verification. | Matches `GCP_PROJECT`. Defaults to `testingproject-19c4c`. |
 | `FIREBASE_DATABASE` | Targets specific Firestore DB instance. | Sourced from `.env`; defaults to **`mithlond-services`** (NOT `(default)`). |
 | `JWT_SIGNING_KEY` | Cryptographic key to sign/verify stateless tokens. | Sourced from `.env`; **dynamically generated as a random 32-char hex string** on first deploy if missing. |
-| `ELVISH_TTS_URL` | (Optional) TTS Synthesizer URL. | Set to enable the conditional `render_elvish_audio` tool. |
+| `ELVISH_TTS_URL` | (Optional) TTS Synthesizer URL. Production: `https://lhongant.mithlond.com`. Local dev: `http://localhost:8080`. | Set to enable the conditional `render_elvish_audio` MCP tool and A2A audio artifacts. |
 | `GEMINI_TRANSLATE_MODEL` | (Optional) Gemini model for translate and neologism A2A skills. | Skills self-hide when unset. Example: `gemini-3.1-flash-lite`. |
 | `GEMINI_LOCATION` | Vertex AI API location for Gemini skills. **Separate from `GCP_REGION`** (the Cloud Run deploy region). Newer Gemini models (3.x) require `global`; regional endpoints serve older generations. | Defaults to `global`. |
 
