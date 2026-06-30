@@ -1,17 +1,19 @@
 package main
 
-// skill_embed.go — compile-time embedding of SKILL.md prompt files.
+// skill_embed.go — compile-time embedding of Agent Skill prompt files.
 //
-// The //go:embed directive requires paths relative to this file's directory
-// and cannot use ".." to escape it, so the embeds must live in package main
-// (the root) where the skills/ markdown directory is directly reachable.
-// The embedded strings are passed into skills.Deps when the A2A handler is
-// constructed, keeping the skills/ Go package free of embed directives.
+// Agent Skills (agent-skills/) are markdown workflow documents for external
+// LLM agents (OpenCode, Claude) using the MCP interface — see agentskills.io.
+// They are ALSO used as Gemini system instructions for the A2A translate and
+// neologism skills, so they are embedded here and injected into skills.Deps.
+//
+// The //go:embed directive cannot use ".." so the embeds must live in package
+// main (the repo root) where agent-skills/ is directly reachable.
 
 import _ "embed"
 
-//go:embed skills/tolkien-translation/SKILL.md
+//go:embed agent-skills/tolkien-translation/SKILL.md
 var translateSkillMD string
 
-//go:embed skills/neologism-builder/SKILL.md
+//go:embed agent-skills/neologism-builder/SKILL.md
 var neologismSkillMD string
