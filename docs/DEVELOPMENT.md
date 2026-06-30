@@ -264,10 +264,18 @@ We use [GoReleaser](https://goreleaser.com/) to automate the creation of platfor
 2.  The GitHub Action (`.github/workflows/release.yml`) will automatically detect the tag, build the binaries, create a GitHub Release, and upload the artifacts.
 
 ### 2. Versioning Strategy
-We follow **Semantic Versioning (SemVer)**:
-- **Major (x.0.0):** Breaking changes to the MCP tool API.
-- **Minor (0.x.0):** New linguistic tools or agent skills.
-- **Patch (0.0.x):** Bug fixes or performance improvements.
+We follow **Semantic Versioning (SemVer)**. The version appears in the A2A
+AgentCard and is the primary signal to clients about what the server can do.
+
+| Bump | When | Examples |
+| :--- | :--- | :--- |
+| **Major** `x.0.0` | Breaking changes to the MCP tool API or A2A protocol surface | Removing an MCP tool, changing tool argument schema |
+| **Minor** `0.x.0` | New user-facing capabilities — linguistic skills **or** A2A protocol features | New skill (name-generate, translate, neologism); new RPC capability (extendedAgentCard); new OAuth scope vocabulary |
+| **Patch** `0.0.x` | Bug fixes, internal refactors, documentation, performance | Lint fixes, description updates, embed path changes |
+
+**Guideline:** if a client reading the AgentCard needs to know about the change
+(new capability advertised, new skill listed, new RPC available), it's a minor
+bump. If the AgentCard is unchanged and behaviour is unchanged, it's a patch.
 
 ### 3. One-Line Installation (For Users)
 Users can install the latest binary automatically using our shell script:
