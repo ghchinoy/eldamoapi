@@ -241,7 +241,7 @@ func buildAgentCard(baseURL string) *a2a.AgentCard {
 		},
 		DefaultInputModes:  []string{"text"},
 		DefaultOutputModes: []string{"text"},
-		Capabilities:       a2a.AgentCapabilities{Streaming: true},
+		Capabilities:       a2a.AgentCapabilities{Streaming: true, ExtendedAgentCard: true},
 
 		// SecuritySchemes declares *how* to authenticate.
 		// Clients read this to discover the OAuth endpoints and available scopes.
@@ -330,6 +330,124 @@ func buildSkillList() []a2a.AgentSkill {
 	return skills
 }
 
+// buildExtendedAgentCard returns the richer AgentCard served to authenticated
+// callers via the A2A GetExtendedAgentCard RPC. Differences from the public card:
+//
+//   - All four skills are always listed (translate and neologism included
+//     regardless of GEMINI_TRANSLATE_MODEL, annotated when unavailable).
+//   - Richer per-skill descriptions with concrete input examples.
+//   - Provider and documentation URL populated.
+func buildExtendedAgentCard(baseURL string) *a2a.AgentCard {
+	llmAvailable := translateEnabled()
+
+	translateDesc := "Translates English text into Quenya or Sindarin using Gemini, applying morphology, case endings, and consonant mutations. Phase 1 fetches Eldamo lexicon roots for grounded vocabulary."
+	neologismDesc := "Constructs new Elvish words for modern concepts. Runs the Anchorage Protocol (GetRootAnchors) then generates two named artifacts: a Practical (functional) path and a Poetic (metaphorical) path, each with a 100-point phonotactic score."
+	if !llmAvailable {
+		translateDesc += " [GEMINI_TRANSLATE_MODEL not configured — skill unavailable on this instance]"
+		neologismDesc += " [GEMINI_TRANSLATE_MODEL not configured — skill unavailable on this instance]"
+	}
+
+	return &a2a.AgentCard{
+		Name:        "Eldamo Elvish Agent",
+		Description: "Agentic access to Paul Strack's Eldamo Tolkien-language lexicon. Skills: Quenya/Sindarin name generation (deterministic, lexicon-grounded), morphologically-guided translation (Gemini, streaming), and dual-path neologism construction with phonotactic scoring (Gemini, two artifacts).",
+		Version:     "0.4.1",
+		Provider: &a2a.AgentProvider{
+			Org: "Mithlond",
+			URL: "https://www.mithlond.com",
+		},
+		DocumentationURL: "https://candir.mithlond.com/.well-known/agent-card.json",
+		SupportedInterfaces: []*a2a.AgentInterface{
+			a2a.NewAgentInterface(baseURL+a2aBasePath, a2a.TransportProtocolJSONRPC),
+		},
+		DefaultInputModes:  []string{"text"},
+		DefaultOutputModes: []string{"text"},
+		Capabilities:       a2a.AgentCapabilities{Streaming: true, ExtendedAgentCard: true},
+		SecuritySchemes: a2a.NamedSecuritySchemes{
+			mithlondOAuthSchemeName: a2a.OAuth2SecurityScheme{
+				Flows: a2a.AuthorizationCodeOAuthFlow{
+					AuthorizationURL: "https://www.mithlond.com/mcp-auth",
+					TokenURL:         baseURL + "/api/oauth/token",
+					PKCERequired:     true,
+					Scopes:           allScopes,
+				},
+			},
+		},
+		SecurityRequirements: a2a.SecurityRequirementsOptions{
+			{mithlondOAuthSchemeName: {"agent:invoke"}},
+		},
+		Skills: []a2a.AgentSkill{
+			{
+				ID:   "name-generate",
+				Name: "Elvish Name Generator",
+				Description: "Generates grammatically authentic Quenya or Sindarin names. " +
+					"Searches the Eldamo lexicon for roots matching concept keywords, applies " +
+					"vowel elision and consonant assimilation rules, and appends an " +
+					"attested suffix (-ndil, -wen, -on, -iel). Fully deterministic; no LLM.",
+				Tags: []string{"linguistics", "names", "quenya", "sindarin", "tolkien"},
+				Examples: []string{
+					"name star silver quenya",
+					"name grey flame sindarin",
+					"name ocean wisdom feminine sindarin",
+					"name strong mountain masculine quenya",
+				},
+				SecurityRequirements: a2a.SecurityRequirementsOptions{
+					{mithlondOAuthSchemeName: {"agent:invoke", "skill:name-generate"}},
+				},
+			},
+			{
+				ID:          "translate",
+				Name:        "Elvish Translator",
+				Description: translateDesc,
+				Tags:        []string{"linguistics", "translation", "quenya", "sindarin", "tolkien"},
+				Examples: []string{
+					"translate farewell my friend to quenya",
+					"translate to sindarin: the grey havens",
+					"translate a star shines on the hour of our meeting to quenya",
+				},
+				SecurityRequirements: a2a.SecurityRequirementsOptions{
+					{mithlondOAuthSchemeName: {"agent:invoke", "skill:translate"}},
+				},
+			},
+			{
+				ID:          "neologism",
+				Name:        "Elvish Neologism Builder",
+				Description: neologismDesc,
+				Tags:        []string{"linguistics", "neologism", "quenya", "sindarin", "tolkien"},
+				Examples: []string{
+					"neologism hover-board quenya",
+					"coin a word for artificial intelligence sindarin",
+					"invent: blockchain in quenya",
+				},
+				SecurityRequirements: a2a.SecurityRequirementsOptions{
+					{mithlondOAuthSchemeName: {"agent:invoke", "skill:neologism"}},
+				},
+			},
+			{
+				ID:          "echo",
+				Name:        "Echo",
+				Description: "Diagnostic fallback: echoes the supplied text. Stateless — creates no task document, returns no Task ID. Use for connectivity checks only.",
+				Tags:        []string{"diagnostic"},
+				Examples:    []string{"hello", "Namarie"},
+			},
+		},
+	}
+}
+
+// extendedCardProducer implements a2asrv.ExtendedAgentCardProducer.
+// It reads the baseURL from the request context (stashed by oauthMiddleware)
+// so the extended card's supportedInterfaces URL is always correct.
+type extendedCardProducer struct{}
+
+func (e *extendedCardProducer) ExtendedCard(ctx context.Context, _ *a2a.GetExtendedAgentCardRequest) (*a2a.AgentCard, error) {
+	baseURL := BaseURLFromContext(ctx)
+	if baseURL == "" {
+		// Fallback for contexts where the URL wasn't stashed (shouldn't happen
+		// in normal operation behind oauthMiddleware).
+		baseURL = "https://candir.mithlond.com"
+	}
+	return buildExtendedAgentCard(baseURL), nil
+}
+
 // requestBaseURL derives the public scheme://host for the current request,
 // mirroring the logic in handleOAuthDiscovery so AgentCard URLs are correct
 // both locally and behind the Cloud Run / GFE proxy.
@@ -390,6 +508,7 @@ func newA2AHandler() http.Handler {
 		&eldamoAgentExecutor{deps: buildDeps()},
 		a2asrv.WithCallInterceptors(&claimsInterceptor{}),
 		a2asrv.WithTaskStore(store),
+		a2asrv.WithExtendedAgentCardProducer(&extendedCardProducer{}),
 	)
 	return a2asrv.NewJSONRPCHandler(requestHandler)
 }

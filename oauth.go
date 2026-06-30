@@ -31,13 +31,24 @@ var (
 // collisions with keys from other packages.
 type contextKey int
 
-const claimsKey contextKey = iota
+const (
+	claimsKey  contextKey = iota // verified JWT MapClaims
+	baseURLKey                   // scheme://host derived from the request
+)
 
 // ClaimsFromContext returns the verified JWT MapClaims stashed by oauthMiddleware.
 // Returns false if no claims are present (should not happen in authenticated handlers).
 func ClaimsFromContext(ctx context.Context) (jwt.MapClaims, bool) {
 	claims, ok := ctx.Value(claimsKey).(jwt.MapClaims)
 	return claims, ok
+}
+
+// BaseURLFromContext returns the scheme://host string stashed by oauthMiddleware.
+// Used by the extended AgentCard producer to build absolute URLs without needing
+// an *http.Request.
+func BaseURLFromContext(ctx context.Context) string {
+	s, _ := ctx.Value(baseURLKey).(string)
+	return s
 }
 
 // scopesSlice extracts the "scopes" claim as a []string. jwt-go stores JSON
@@ -642,6 +653,7 @@ func oauthMiddleware(next http.Handler) http.Handler {
 		if os.Getenv("AUTH_BYPASS") == "true" {
 			log.Printf("[Auth] AUTH_BYPASS enabled, skipping authentication for %s %s", r.Method, r.URL.Path)
 			ctx := context.WithValue(r.Context(), claimsKey, bypassClaims)
+			ctx = context.WithValue(ctx, baseURLKey, requestBaseURL(r))
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
@@ -710,10 +722,11 @@ func oauthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Signature and expiration are valid. Stash the claims in the request
-		// context so downstream handlers (gate, A2A CallInterceptor) can read
-		// them without re-parsing the token.
+		// Signature and expiration are valid. Stash claims and baseURL so
+		// downstream handlers (gate, A2A CallInterceptor, extended card
+		// producer) can read them without access to *http.Request.
 		ctx := context.WithValue(r.Context(), claimsKey, claims)
+		ctx = context.WithValue(ctx, baseURLKey, requestBaseURL(r))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
