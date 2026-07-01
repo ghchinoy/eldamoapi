@@ -220,6 +220,44 @@ func TestMcpMultiplexerRouting(t *testing.T) {
 	}
 }
 
+// TestRootPathMountedForBaseURLProbes verifies the MCP transport is reachable at
+// the exact base path (so clients like Gemini Spark that probe POST / and HEAD /
+// get an auth challenge instead of a 404), while the "/{$}" pattern keeps
+// unknown paths returning 404.
+func TestRootPathMountedForBaseURLProbes(t *testing.T) {
+	t.Setenv("AUTH_BYPASS", "")
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK) // only reached when authenticated
+	})
+	secured := oauthMiddleware(inner)
+
+	mux := http.NewServeMux()
+	mux.Handle("/{$}", secured)
+	mux.Handle("/sse", secured)
+
+	// Base-URL probes reach the auth-gated transport -> 401, not a bare 404.
+	for _, m := range []string{"POST", "HEAD", "GET"} {
+		req := httptest.NewRequest(m, "/", nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code == http.StatusNotFound {
+			t.Errorf("%s / returned 404; expected transport mounted at root to issue an auth challenge", m)
+		}
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("%s / expected 401 (unauthenticated transport), got %d", m, w.Code)
+		}
+	}
+
+	// Unknown paths still 404 — the root pattern is exact-match only.
+	req := httptest.NewRequest("GET", "/favicon.ico", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for unknown path /favicon.ico, got %d", w.Code)
+	}
+}
+
 func TestOAuthDiscovery(t *testing.T) {
 	// Test standard GET request to discovery endpoint
 	req := httptest.NewRequest("GET", "/.well-known/oauth-authorization-server", nil)

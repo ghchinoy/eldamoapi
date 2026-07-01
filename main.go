@@ -544,6 +544,16 @@ func main() {
 	// Mount the MCP handler — the scope gate is baked into secureHandler already.
 	mux.Handle("/sse", secureHandler)
 
+	// Also expose the MCP transport at the exact base path. Some clients treat
+	// the server URL as a single Streamable HTTP endpoint and probe the root
+	// directly (Gemini Spark issues POST / and HEAD /), which otherwise 404s.
+	// The "/{$}" pattern matches ONLY "/" (Go 1.22+), so unknown paths still
+	// 404 as before. Same secureHandler chain (oauthMiddleware → sseLogging →
+	// gate) — base-URL probes now get a proper 401 challenge with the RFC 9728
+	// resource_metadata pointer instead of a bare 404, and authenticated clients
+	// can drive the full transport from the root.
+	mux.Handle("/{$}", secureHandler)
+
 	// --- A2A (Agent2Agent) exposure ---
 	// Public, unauthenticated AgentCard discovery document.
 	mux.HandleFunc(a2asrv.WellKnownAgentCardPath, handleAgentCard)
