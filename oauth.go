@@ -230,6 +230,221 @@ func FetchAndValidateCIMD(ctx context.Context, clientIDUrl string) (*ClientIDMet
 	return &meta, nil
 }
 
+// --- RFC 7591 Dynamic Client Registration (DCR) ---
+//
+// DCR is a second, coexisting front door for client onboarding alongside CIMD
+// (client-id-as-URL). Clients that speak DCR (e.g. Gemini Spark) POST their
+// metadata to the registration endpoint and receive an opaque client_id. Both
+// mechanisms converge on the SAME authorization_code + PKCE core and issue the
+// same HMAC JWT — "shared core, thin adapters". This server is a public/PKCE
+// authorization server, so registered clients are public (no client_secret;
+// token_endpoint_auth_method "none").
+
+const (
+	// registeredClientsCollection is the Firestore collection (in the
+	// mithlond-services database) where DCR clients are persisted.
+	registeredClientsCollection = "registered_clients"
+	// dynamicClientIDPrefix marks locally-issued client_ids so they are never
+	// confused with CIMD client-id URLs (which are https URLs).
+	dynamicClientIDPrefix = "mcp-client-"
+	// maxRedirectURIs bounds abuse of the open registration endpoint.
+	maxRedirectURIs = 10
+)
+
+// ClientRegistrationRequest is the subset of RFC 7591 client metadata accepted
+// by the registration endpoint.
+type ClientRegistrationRequest struct {
+	RedirectURIs            []string `json:"redirect_uris"`
+	ClientName              string   `json:"client_name,omitempty"`
+	GrantTypes              []string `json:"grant_types,omitempty"`
+	ResponseTypes           []string `json:"response_types,omitempty"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method,omitempty"`
+	Scope                   string   `json:"scope,omitempty"`
+}
+
+// ClientRegistrationResponse is the RFC 7591 registration response for a public
+// client. Note the deliberate absence of client_secret.
+type ClientRegistrationResponse struct {
+	ClientID                string   `json:"client_id"`
+	ClientIDIssuedAt        int64    `json:"client_id_issued_at"`
+	RedirectURIs            []string `json:"redirect_uris"`
+	ClientName              string   `json:"client_name,omitempty"`
+	GrantTypes              []string `json:"grant_types"`
+	ResponseTypes           []string `json:"response_types"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
+	Scope                   string   `json:"scope,omitempty"`
+}
+
+// validateRedirectURIForRegistration enforces https, or http on a loopback host
+// (RFC 8252), for a dynamically-registered redirect URI.
+func validateRedirectURIForRegistration(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid redirect_uri %q: %w", raw, err)
+	}
+	if u.Scheme == "https" {
+		return nil
+	}
+	if u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1") {
+		return nil
+	}
+	return fmt.Errorf("redirect_uri %q must be https or http on a loopback host", raw)
+}
+
+// buildClientRegistration validates an RFC 7591 request and produces the public
+// client registration response (no client_secret; token_endpoint_auth_method
+// "none"). It is deterministic except for the generated client_id and timestamp,
+// so it is unit-testable without Firestore.
+func buildClientRegistration(req *ClientRegistrationRequest) (*ClientRegistrationResponse, error) {
+	if len(req.RedirectURIs) == 0 {
+		return nil, errors.New("redirect_uris is required and must be non-empty")
+	}
+	if len(req.RedirectURIs) > maxRedirectURIs {
+		return nil, fmt.Errorf("too many redirect_uris (max %d)", maxRedirectURIs)
+	}
+	for _, uri := range req.RedirectURIs {
+		if err := validateRedirectURIForRegistration(uri); err != nil {
+			return nil, err
+		}
+	}
+
+	// Public (PKCE) authorization server: only "none" is supported.
+	authMethod := req.TokenEndpointAuthMethod
+	if authMethod == "" {
+		authMethod = "none"
+	}
+	if authMethod != "none" {
+		return nil, fmt.Errorf("unsupported token_endpoint_auth_method %q (only 'none' is supported)", authMethod)
+	}
+
+	grantTypes := req.GrantTypes
+	if len(grantTypes) == 0 {
+		grantTypes = []string{"authorization_code", "refresh_token"}
+	}
+	responseTypes := req.ResponseTypes
+	if len(responseTypes) == 0 {
+		responseTypes = []string{"code"}
+	}
+
+	return &ClientRegistrationResponse{
+		ClientID:                dynamicClientIDPrefix + generateRandomString(32),
+		ClientIDIssuedAt:        time.Now().Unix(),
+		RedirectURIs:            req.RedirectURIs,
+		ClientName:              req.ClientName,
+		GrantTypes:              grantTypes,
+		ResponseTypes:           responseTypes,
+		TokenEndpointAuthMethod: "none",
+		Scope:                   req.Scope,
+	}, nil
+}
+
+// handleClientRegistration implements RFC 7591 Dynamic Client Registration for
+// public/PKCE clients (e.g. Gemini Spark). It issues an opaque client_id with no
+// secret and persists the client's redirect_uris so the authorize flow can
+// validate them — the DCR analogue of fetching a CIMD document. Registration is
+// open (unauthenticated) per RFC 7591; abuse is bounded by strict redirect_uri
+// validation and the public-client-only policy.
+func handleClientRegistration(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	var req ClientRegistrationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("[DCR] Failed to decode registration request: %v", err)
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error":             "invalid_client_metadata",
+			"error_description": "Request body must be valid JSON client metadata",
+		})
+		return
+	}
+
+	reg, err := buildClientRegistration(&req)
+	if err != nil {
+		log.Printf("[DCR] Rejected registration: %v", err)
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error":             "invalid_redirect_uri",
+			"error_description": err.Error(),
+		})
+		return
+	}
+
+	// Persist so the authorize flow can later validate redirect_uris.
+	if firestoreClient != nil {
+		_, err = firestoreClient.Collection(registeredClientsCollection).Doc(reg.ClientID).Set(r.Context(), map[string]interface{}{
+			"client_id":                  reg.ClientID,
+			"client_name":                reg.ClientName,
+			"redirect_uris":              reg.RedirectURIs,
+			"grant_types":                reg.GrantTypes,
+			"response_types":             reg.ResponseTypes,
+			"token_endpoint_auth_method": reg.TokenEndpointAuthMethod,
+			"scope":                      reg.Scope,
+			"created_at":                 time.Now(),
+		})
+		if err != nil {
+			log.Printf("[DCR] Firestore write failed: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error":             "server_error",
+				"error_description": "Failed to persist client registration",
+			})
+			return
+		}
+	}
+
+	log.Printf("[DCR] Registered public client '%s' (name=%q, %d redirect_uris)", reg.ClientID, reg.ClientName, len(reg.RedirectURIs))
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(reg)
+}
+
+// isURLClientID reports whether a client_id is a CIMD client-id URL (vs. an
+// opaque DCR-issued identifier).
+func isURLClientID(clientID string) bool {
+	return strings.HasPrefix(clientID, "https://") || strings.HasPrefix(clientID, "http://")
+}
+
+// resolveClient resolves a client_id to its metadata via the appropriate
+// onboarding mechanism: CIMD (client-id-as-URL) for URL client_ids, or the
+// locally-registered DCR store for opaque client_ids. Both converge on the same
+// downstream authorization_code + PKCE flow.
+func resolveClient(ctx context.Context, clientID string) (*ClientIDMetadata, error) {
+	if isURLClientID(clientID) {
+		return FetchAndValidateCIMD(ctx, clientID)
+	}
+	return getRegisteredClient(ctx, clientID)
+}
+
+// getRegisteredClient loads a DCR-registered client from Firestore and adapts it
+// to the shared ClientIDMetadata shape used by the authorize flow.
+func getRegisteredClient(ctx context.Context, clientID string) (*ClientIDMetadata, error) {
+	if firestoreClient == nil {
+		return nil, errors.New("client registration store unavailable")
+	}
+	doc, err := firestoreClient.Collection(registeredClientsCollection).Doc(clientID).Get(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unknown client_id %q: %w", clientID, err)
+	}
+	data := doc.Data()
+	meta := &ClientIDMetadata{ClientID: clientID}
+	meta.ClientName, _ = data["client_name"].(string)
+	if raw, ok := data["redirect_uris"].([]interface{}); ok {
+		for _, u := range raw {
+			if s, ok := u.(string); ok {
+				meta.RedirectURIs = append(meta.RedirectURIs, s)
+			}
+		}
+	}
+	if len(meta.RedirectURIs) == 0 {
+		return nil, errors.New("registered client has no redirect_uris")
+	}
+	return meta, nil
+}
+
 type AuthCallbackPayload struct {
 	IDToken       string `json:"id_token"`
 	ClientID      string `json:"client_id"`
@@ -320,8 +535,9 @@ func handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	userEmail, _ := decodedToken.Claims["email"].(string)
 	log.Printf("[OAuth] Authenticated session for user '%s' (%s)", decodedToken.UID, userEmail)
 
-	// 2. Validate Client Identity and Metadata dynamically via CIMD
-	clientMeta, err := FetchAndValidateCIMD(r.Context(), payload.ClientID)
+	// 2. Validate Client Identity and Metadata. resolveClient dispatches on the
+	// client_id shape: CIMD (client-id-as-URL) or a DCR-registered client_id.
+	clientMeta, err := resolveClient(r.Context(), payload.ClientID)
 	if err != nil {
 		log.Printf("[OAuth] Client validation failed for %s: %v", payload.ClientID, err)
 		http.Error(w, fmt.Sprintf("Client validation failed: %s", err.Error()), http.StatusForbidden)
@@ -681,8 +897,14 @@ func oauthMiddleware(next http.Handler) http.Handler {
 
 			log.Printf("[Auth] Rejected request %s %s: Missing access token", r.Method, r.URL.Path)
 			w.Header().Set("Content-Type", "application/json")
-			// Add standard WWW-Authenticate header to signal OAuth 2.1 authentication requirement
-			w.Header().Set("WWW-Authenticate", `Bearer realm="Mithlond", error="unauthorized", error_description="Missing access token"`)
+			// Add standard WWW-Authenticate header to signal OAuth 2.1 authentication
+			// requirement. The resource_metadata parameter (RFC 9728) points clients
+			// to the Protected Resource Metadata document so they can discover the
+			// authorization server without dead-ending at a 404.
+			w.Header().Set("WWW-Authenticate", fmt.Sprintf(
+				`Bearer realm="Mithlond", error="unauthorized", error_description="Missing access token", resource_metadata="%s/.well-known/oauth-protected-resource"`,
+				requestBaseURL(r),
+			))
 			w.WriteHeader(http.StatusUnauthorized)
 			_ = json.NewEncoder(w).Encode(map[string]string{
 				"error":             "unauthorized",

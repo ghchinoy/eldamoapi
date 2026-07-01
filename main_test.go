@@ -262,12 +262,109 @@ func TestOAuthDiscovery(t *testing.T) {
 		t.Errorf("Expected token_endpoint '%s', got '%s'", expectedTokenEndpoint, resp["token_endpoint"])
 	}
 
+	// RFC 7591 DCR must be advertised alongside CIMD so DCR-only clients (Spark)
+	// can self-register while CIMD clients keep working.
+	expectedRegEndpoint := "https://www.mithlond.com/api/oauth/register"
+	if resp["registration_endpoint"] != expectedRegEndpoint {
+		t.Errorf("Expected registration_endpoint '%s', got '%s'", expectedRegEndpoint, resp["registration_endpoint"])
+	}
+	if resp["client_id_metadata_document_supported"] != true {
+		t.Errorf("Expected CIMD support to remain advertised alongside DCR")
+	}
+
 	// Test non-GET request
 	reqPost := httptest.NewRequest("POST", "/.well-known/oauth-authorization-server", nil)
 	wPost := httptest.NewRecorder()
 	handleOAuthDiscovery(wPost, reqPost)
 	if wPost.Code != http.StatusMethodNotAllowed {
 		t.Errorf("Expected POST to return 405 Method Not Allowed, got %d", wPost.Code)
+	}
+}
+
+func TestProtectedResourceMetadata(t *testing.T) {
+	decode := func(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
+		t.Helper()
+		if w.Code != http.StatusOK {
+			t.Fatalf("Expected status code 200, got %d", w.Code)
+		}
+		if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+			t.Errorf("Expected Content-Type 'application/json', got '%s'", ct)
+		}
+		var resp map[string]any
+		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+			t.Fatalf("Failed to decode response: %v", err)
+		}
+		return resp
+	}
+
+	// 1. Bare path: resource identifier is the base URL, and the authorization
+	//    server points back to this host's RFC 8414 document.
+	req := httptest.NewRequest("GET", "/.well-known/oauth-protected-resource", nil)
+	req.Host = "candir.mithlond.com"
+	w := httptest.NewRecorder()
+	handleProtectedResourceMetadata(w, req)
+	resp := decode(t, w)
+
+	if resp["resource"] != "https://candir.mithlond.com" {
+		t.Errorf("Expected resource 'https://candir.mithlond.com', got '%v'", resp["resource"])
+	}
+	authServers, ok := resp["authorization_servers"].([]any)
+	if !ok || len(authServers) != 1 || authServers[0] != "https://candir.mithlond.com" {
+		t.Errorf("Expected authorization_servers ['https://candir.mithlond.com'], got '%v'", resp["authorization_servers"])
+	}
+
+	// 2. Resource-path-suffixed variant (RFC 9728): resource reflects the /sse path.
+	reqSSE := httptest.NewRequest("GET", "/.well-known/oauth-protected-resource/sse", nil)
+	reqSSE.Host = "candir.mithlond.com"
+	wSSE := httptest.NewRecorder()
+	handleProtectedResourceMetadata(wSSE, reqSSE)
+	respSSE := decode(t, wSSE)
+	if respSSE["resource"] != "https://candir.mithlond.com/sse" {
+		t.Errorf("Expected resource 'https://candir.mithlond.com/sse', got '%v'", respSSE["resource"])
+	}
+
+	// 3. Non-GET (other than OPTIONS) is rejected.
+	reqPost := httptest.NewRequest("POST", "/.well-known/oauth-protected-resource", nil)
+	wPost := httptest.NewRecorder()
+	handleProtectedResourceMetadata(wPost, reqPost)
+	if wPost.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Expected POST to return 405 Method Not Allowed, got %d", wPost.Code)
+	}
+
+	// 4. Preflight OPTIONS returns CORS headers and 204.
+	reqOpt := httptest.NewRequest("OPTIONS", "/.well-known/oauth-protected-resource", nil)
+	wOpt := httptest.NewRecorder()
+	handleProtectedResourceMetadata(wOpt, reqOpt)
+	if wOpt.Code != http.StatusNoContent {
+		t.Errorf("Expected OPTIONS to return 204, got %d", wOpt.Code)
+	}
+	if wOpt.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Errorf("Expected permissive CORS on OPTIONS preflight")
+	}
+}
+
+// TestUnauthorizedChallengePointsToPRM verifies the 401 WWW-Authenticate header
+// carries the RFC 9728 resource_metadata pointer so clients can discover the
+// Protected Resource Metadata document.
+func TestUnauthorizedChallengePointsToPRM(t *testing.T) {
+	t.Setenv("AUTH_BYPASS", "")
+
+	dummy := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	req := httptest.NewRequest("GET", "/sse", nil)
+	req.Host = "candir.mithlond.com"
+	w := httptest.NewRecorder()
+
+	oauthMiddleware(dummy).ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("Expected 401, got %d", w.Code)
+	}
+	challenge := w.Header().Get("WWW-Authenticate")
+	want := `resource_metadata="https://candir.mithlond.com/.well-known/oauth-protected-resource"`
+	if !strings.Contains(challenge, want) {
+		t.Errorf("Expected WWW-Authenticate to contain %q, got %q", want, challenge)
 	}
 }
 

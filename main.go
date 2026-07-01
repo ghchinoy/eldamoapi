@@ -366,6 +366,7 @@ func handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
 		"issuer":                                baseURL,
 		"authorization_endpoint":                "https://www.mithlond.com/mcp-auth",
 		"token_endpoint":                        fmt.Sprintf("%s/api/oauth/token", baseURL),
+		"registration_endpoint":                 fmt.Sprintf("%s/api/oauth/register", baseURL),
 		"client_id_metadata_document_supported": true,
 		"response_types_supported":              []string{"code"},
 		"grant_types_supported":                 []string{"authorization_code"},
@@ -377,6 +378,64 @@ func handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(metadata); err != nil {
 		log.Printf("Error encoding discovery metadata: %v", err)
+	}
+}
+
+// protectedResourceMetadataPrefix is the RFC 9728 well-known base path. Clients
+// probe this path directly, and also with the resource path inserted after it
+// (e.g. .../oauth-protected-resource/sse), so we serve both the exact path and
+// the subtree from handleProtectedResourceMetadata.
+const protectedResourceMetadataPrefix = "/.well-known/oauth-protected-resource"
+
+// handleProtectedResourceMetadata serves RFC 9728 (OAuth 2.0 Protected Resource
+// Metadata). Modern MCP clients (Gemini Spark, opencode) fetch this document to
+// discover which authorization server protects the resource BEFORE they reach
+// the RFC 8414 authorization-server metadata. It is public/unauthenticated per
+// the "public discovery, protected protocol" principle; the /sse and /a2a
+// endpoints it advertises remain JWT-gated by oauthMiddleware.
+//
+// Clients insert the resource path into the well-known path per RFC 9728
+// (e.g. GET /.well-known/oauth-protected-resource/sse), so we derive the
+// specific resource identifier from the path suffix and also answer the bare
+// /.well-known/oauth-protected-resource path.
+func handleProtectedResourceMetadata(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "*")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	baseURL := requestBaseURL(r)
+
+	// Derive the specific resource identifier from any path suffix the client
+	// appended (e.g. "/sse" or "/a2a"). A bare or trailing-slash path maps to
+	// the base URL as the resource identifier.
+	resource := baseURL
+	if suffix := strings.TrimPrefix(r.URL.Path, protectedResourceMetadataPrefix); suffix != "" && suffix != "/" {
+		resource = baseURL + suffix
+	}
+
+	// Both /sse (MCP) and /a2a (A2A) sit behind the same oauthMiddleware and are
+	// protected by the same authorization server (this host's RFC 8414 document),
+	// so a single PRM shape describes every resource — "one token, both protocols".
+	metadata := map[string]any{
+		"resource":                 resource,
+		"authorization_servers":    []string{baseURL},
+		"scopes_supported":         []string{"lexicon:read"},
+		"bearer_methods_supported": []string{"header"},
+	}
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(metadata); err != nil {
+		log.Printf("Error encoding protected resource metadata: %v", err)
 	}
 }
 
@@ -462,14 +521,25 @@ func main() {
 		_, _ = fmt.Fprintln(w, "OK")
 	})
 
-	// Mount the well-known OAuth 2.1 discovery endpoint
+	// Mount the well-known OAuth 2.1 discovery endpoint (RFC 8414)
 	mux.HandleFunc("/.well-known/oauth-authorization-server", handleOAuthDiscovery)
+
+	// Mount the RFC 9728 Protected Resource Metadata endpoint. The exact path
+	// serves the base resource; the trailing-slash subtree catches the
+	// resource-path-suffixed variants clients probe (e.g. .../oauth-protected-resource/sse).
+	mux.HandleFunc(protectedResourceMetadataPrefix, handleProtectedResourceMetadata)
+	mux.HandleFunc(protectedResourceMetadataPrefix+"/", handleProtectedResourceMetadata)
 
 	// Mount the OAuth 2.1 authorize-callback endpoint
 	mux.HandleFunc("/api/oauth/authorize-callback", handleAuthCallback)
 
 	// Mount the OAuth 2.1 token endpoint
 	mux.HandleFunc("/api/oauth/token", handleTokenExchange)
+
+	// Mount the RFC 7591 Dynamic Client Registration endpoint. Coexists with
+	// CIMD; issues public (PKCE) client_ids so DCR-only clients (e.g. Spark)
+	// can self-register. Proxied by mithlond-web's /api/oauth/** Hosting rewrite.
+	mux.HandleFunc("/api/oauth/register", handleClientRegistration)
 
 	// Mount the MCP handler — the scope gate is baked into secureHandler already.
 	mux.Handle("/sse", secureHandler)
