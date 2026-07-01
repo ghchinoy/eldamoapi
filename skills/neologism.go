@@ -2,14 +2,15 @@ package skills
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"google.golang.org/genai"
 )
 
 const (
@@ -192,37 +193,40 @@ func RunNeologism(ctx context.Context, execCtx *a2asrv.ExecutorContext, deps *De
 		}
 
 		thinkMsg := a2a.NewMessageForTask(a2a.MessageRoleAgent, execCtx,
-			a2a.NewTextPart(fmt.Sprintf("Building two-path neologism with Gemini (%s)...", deps.ModelName)))
+			a2a.NewTextPart(fmt.Sprintf("Building two-path neologism (model: %s)...", deps.ModelName)))
 		if !yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateWorking, thinkMsg), nil) {
 			return
 		}
 
 		userPrompt := buildNeologismPrompt(req, contextBlock)
-		config := &genai.GenerateContentConfig{
-			SystemInstruction: &genai.Content{
-				Parts: []*genai.Part{{Text: deps.NeologismMD}},
-			},
-		}
 
 		var full strings.Builder
-		for chunk, streamErr := range deps.GenAI.Models.GenerateContentStream(
-			ctx, deps.ModelName, genai.Text(userPrompt), config) {
+		var usage *Usage
+		start := time.Now()
+		for chunk, streamErr := range deps.LLM.GenerateContentStream(
+			ctx, deps.ModelName, deps.NeologismMD, userPrompt) {
 			if streamErr != nil {
+				LogUsage("neologism", execCtx.User.Name, usage, time.Since(start), streamErr)
 				failMsg := a2a.NewMessageForTask(a2a.MessageRoleAgent, execCtx,
 					a2a.NewTextPart(fmt.Sprintf("Generation error: %v", streamErr)))
 				yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateFailed, failMsg), nil)
 				return
 			}
-			full.WriteString(chunk.Text())
+			if chunk.Usage != nil {
+				usage = chunk.Usage
+			}
+			full.WriteString(chunk.Text)
 		}
 
 		response := strings.TrimSpace(full.String())
 		if response == "" {
+			LogUsage("neologism", execCtx.User.Name, usage, time.Since(start), errors.New("empty response from LLM backend"))
 			failMsg := a2a.NewMessageForTask(a2a.MessageRoleAgent, execCtx,
-				a2a.NewTextPart("Gemini returned an empty response."))
+				a2a.NewTextPart("The LLM backend returned an empty response."))
 			yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateFailed, failMsg), nil)
 			return
 		}
+		LogUsage("neologism", execCtx.User.Name, usage, time.Since(start), nil)
 
 		practical, poetic := SplitNeologismPaths(response)
 		if practical != "" {

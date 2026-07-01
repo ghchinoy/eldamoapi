@@ -5,15 +5,93 @@ package skills
 // (nameRequest.lang/gender/concepts, translateRequest.targetLang/sourceText).
 
 import (
+	"bytes"
+	"context"
+	"errors"
+	"iter"
+	"log"
 	"strings"
 	"testing"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/ghchinoy/eldamoapi/index"
 )
 
 func msg(text string) *a2a.Message {
 	return &a2a.Message{Parts: []*a2a.Part{a2a.NewTextPart(text)}}
+}
+
+// ── LLMClient test doubles ──────────────────────────────────────────────────
+
+// emptyIndex is a LexiconSearcher stub returning no results, so
+// RunTranslate/RunNeologism exercise the LLM path without needing real
+// lexicon data.
+type emptyIndex struct{}
+
+func (emptyIndex) SearchKeyword(_, _, _, _ string) []*index.FlatWord { return nil }
+func (emptyIndex) GetRootAnchors(_ string) []*index.FlatWord         { return nil }
+
+// fakeLLMClient is a scripted LLMClient test double: it yields chunks/errors
+// exactly as configured, so tests can assert that skill executors correctly
+// consume the LLMClient interface (Deps.LLM) end-to-end without depending on
+// any concrete backend SDK.
+type fakeLLMClient struct {
+	chunks []GenChunk
+	err    error // yielded after all chunks, if non-nil
+
+	// gotModel/gotSystem/gotPrompt capture the last call's arguments.
+	gotModel  string
+	gotSystem string
+	gotPrompt string
+}
+
+func (f *fakeLLMClient) GenerateContentStream(_ context.Context, model, systemInstruction, prompt string) iter.Seq2[GenChunk, error] {
+	f.gotModel = model
+	f.gotSystem = systemInstruction
+	f.gotPrompt = prompt
+	return func(yield func(GenChunk, error) bool) {
+		for _, c := range f.chunks {
+			if !yield(c, nil) {
+				return
+			}
+		}
+		if f.err != nil {
+			yield(GenChunk{}, f.err)
+		}
+	}
+}
+
+// collectEvents drains an iter.Seq2[a2a.Event, error], failing the test on
+// any yielded error.
+func collectEvents(t *testing.T, seq iter.Seq2[a2a.Event, error]) []a2a.Event {
+	t.Helper()
+	var events []a2a.Event
+	for e, err := range seq {
+		if err != nil {
+			t.Fatalf("unexpected error event: %v", err)
+		}
+		events = append(events, e)
+	}
+	return events
+}
+
+// artifactTexts extracts the text content of every TaskArtifactUpdateEvent
+// among events.
+func artifactTexts(events []a2a.Event) []string {
+	var out []string
+	for _, e := range events {
+		art, ok := e.(*a2a.TaskArtifactUpdateEvent)
+		if !ok || art.Artifact == nil {
+			continue
+		}
+		var b strings.Builder
+		for _, p := range art.Artifact.Parts {
+			b.WriteString(p.Text())
+		}
+		out = append(out, b.String())
+	}
+	return out
 }
 
 // ── TestParseNameRequest ──────────────────────────────────────────────────────
@@ -330,4 +408,171 @@ func TestConceptsFromText(t *testing.T) {
 			t.Errorf("expected empty, got %v", got)
 		}
 	})
+}
+
+// ── TestRunTranslate ──────────────────────────────────────────────────────────
+
+// TestRunTranslate verifies RunTranslate consumes Deps.LLM through the
+// skills.LLMClient interface (not a concrete SDK type): the fake backend's
+// streamed chunks should be assembled into the final translation artifact,
+// and the model/system-instruction/prompt passed through unchanged.
+func TestRunTranslate(t *testing.T) {
+	fake := &fakeLLMClient{chunks: []GenChunk{
+		{Text: "Elen "}, {Text: "síla "}, {Text: "lúmenn'."},
+	}}
+	deps := &Deps{
+		Index:       emptyIndex{},
+		LLM:         fake,
+		ModelName:   "test-model",
+		TranslateMD: "system instructions for translate",
+	}
+	execCtx := &a2asrv.ExecutorContext{
+		User:    &a2asrv.User{Name: "test-user"},
+		Message: msg("translate to quenya: a star shines"),
+	}
+
+	events := collectEvents(t, RunTranslate(context.Background(), execCtx, deps))
+
+	texts := artifactTexts(events)
+	if len(texts) != 1 {
+		t.Fatalf("expected exactly one artifact, got %d: %v", len(texts), texts)
+	}
+	if want := "Elen síla lúmenn'."; texts[0] != want {
+		t.Errorf("artifact text: want %q, got %q", want, texts[0])
+	}
+	if fake.gotModel != "test-model" {
+		t.Errorf("model passed to LLM: want test-model, got %q", fake.gotModel)
+	}
+	if fake.gotSystem != deps.TranslateMD {
+		t.Errorf("systemInstruction passed to LLM: want %q, got %q", deps.TranslateMD, fake.gotSystem)
+	}
+}
+
+// TestRunTranslate_LLMError verifies a streaming error from Deps.LLM surfaces
+// as a failed task status update rather than a panic or silent drop.
+func TestRunTranslate_LLMError(t *testing.T) {
+	fake := &fakeLLMClient{err: errors.New("backend unavailable")}
+	deps := &Deps{Index: emptyIndex{}, LLM: fake, ModelName: "test-model"}
+	execCtx := &a2asrv.ExecutorContext{
+		User:    &a2asrv.User{Name: "test-user"},
+		Message: msg("translate to quenya: hello"),
+	}
+
+	events := collectEvents(t, RunTranslate(context.Background(), execCtx, deps))
+
+	var sawFailed bool
+	for _, e := range events {
+		if su, ok := e.(*a2a.TaskStatusUpdateEvent); ok && su.Status.State == a2a.TaskStateFailed {
+			sawFailed = true
+		}
+	}
+	if !sawFailed {
+		t.Error("expected a TaskStateFailed status update on LLM error")
+	}
+}
+
+// ── TestRunNeologism ──────────────────────────────────────────────────────────
+
+// TestRunNeologism verifies RunNeologism consumes Deps.LLM through the
+// skills.LLMClient interface and splits the practical/poetic paths from the
+// assembled streamed response.
+func TestRunNeologism(t *testing.T) {
+	response := PracticalDelim + "\npractical answer" + "\n\n" + PoeticDelim + "\npoetic answer"
+	fake := &fakeLLMClient{chunks: []GenChunk{{Text: response}}}
+	deps := &Deps{
+		Index:       emptyIndex{},
+		LLM:         fake,
+		ModelName:   "test-model",
+		NeologismMD: "system instructions for neologism",
+	}
+	execCtx := &a2asrv.ExecutorContext{
+		User:    &a2asrv.User{Name: "test-user"},
+		Message: msg("neologism starlight"),
+	}
+
+	events := collectEvents(t, RunNeologism(context.Background(), execCtx, deps))
+
+	texts := artifactTexts(events)
+	if len(texts) != 2 {
+		t.Fatalf("expected practical + poetic artifacts, got %d: %v", len(texts), texts)
+	}
+	if texts[0] != "practical answer" {
+		t.Errorf("practical artifact: want %q, got %q", "practical answer", texts[0])
+	}
+	if texts[1] != "poetic answer" {
+		t.Errorf("poetic artifact: want %q, got %q", "poetic answer", texts[1])
+	}
+	if fake.gotSystem != deps.NeologismMD {
+		t.Errorf("systemInstruction passed to LLM: want %q, got %q", deps.NeologismMD, fake.gotSystem)
+	}
+}
+
+// ── TestRunTranslate/RunNeologism usage logging (Phase 2) ───────────────────────
+
+// captureLog temporarily redirects the standard logger to a buffer for the
+// duration of fn, restoring the original writer afterward, and returns the
+// captured output.
+func captureLog(t *testing.T, fn func()) string {
+	t.Helper()
+	var buf bytes.Buffer
+	orig := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(orig)
+	fn()
+	return buf.String()
+}
+
+// TestRunTranslate_LogsUsage verifies RunTranslate emits a [Usage] log line
+// carrying the backend/model/token counts reported by the LLM backend's
+// terminal usage chunk — this is what docs/model-evaluation.md's results
+// table will eventually be populated from.
+func TestRunTranslate_LogsUsage(t *testing.T) {
+	fake := &fakeLLMClient{chunks: []GenChunk{
+		{Text: "Elen síla."},
+		{Usage: &Usage{Backend: "llama.cpp", Model: "test-model", PromptTokens: 42, CompletionTokens: 7, TotalTokens: 49}},
+	}}
+	deps := &Deps{Index: emptyIndex{}, LLM: fake, ModelName: "test-model", TranslateMD: "sys"}
+	execCtx := &a2asrv.ExecutorContext{
+		User:    &a2asrv.User{Name: "test-user"},
+		Message: msg("translate to quenya: a star shines"),
+	}
+
+	logged := captureLog(t, func() {
+		collectEvents(t, RunTranslate(context.Background(), execCtx, deps))
+	})
+
+	for _, want := range []string{
+		"[Usage] skill=translate", `user="test-user"`, "status=ok",
+		"backend=llama.cpp", "model=test-model",
+		"prompt_tokens=42", "completion_tokens=7", "total_tokens=49",
+	} {
+		if !strings.Contains(logged, want) {
+			t.Errorf("log output missing %q; full log:\n%s", want, logged)
+		}
+	}
+}
+
+// TestRunNeologism_LogsUsageOnError verifies RunNeologism logs a [Usage]
+// line with status=error when the backend fails mid-stream, even though no
+// usage was ever reported.
+func TestRunNeologism_LogsUsageOnError(t *testing.T) {
+	fake := &fakeLLMClient{err: errors.New("backend unavailable")}
+	deps := &Deps{Index: emptyIndex{}, LLM: fake, ModelName: "test-model", NeologismMD: "sys"}
+	execCtx := &a2asrv.ExecutorContext{
+		User:    &a2asrv.User{Name: "test-user"},
+		Message: msg("neologism starlight"),
+	}
+
+	logged := captureLog(t, func() {
+		collectEvents(t, RunNeologism(context.Background(), execCtx, deps))
+	})
+
+	for _, want := range []string{
+		"[Usage] skill=neologism", `user="test-user"`, "status=error",
+		"backend=?", "model=?", "err=backend unavailable",
+	} {
+		if !strings.Contains(logged, want) {
+			t.Errorf("log output missing %q; full log:\n%s", want, logged)
+		}
+	}
 }

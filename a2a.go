@@ -95,6 +95,55 @@ func initGenAIClient() (*genai.Client, error) {
 	return genaiClient, genaiErr
 }
 
+// ── skills.LLMClient adapter for Vertex AI Gemini ──────────────────────────────
+
+// vertexLLMClient adapts *genai.Client to skills.LLMClient so skill executors
+// have zero direct dependency on the genai SDK. Additional backends (e.g. a
+// local OpenAI-compatible client for llama.cpp / mlx_lm.server) implement the
+// same interface as thin adapters alongside this one.
+type vertexLLMClient struct {
+	client *genai.Client
+}
+
+var _ skills.LLMClient = (*vertexLLMClient)(nil)
+
+// vertexBackendID tags usage records produced by this adapter (see
+// skills.Usage.Backend) so cost/quality comparisons can distinguish Vertex
+// Gemini calls from local llama.cpp/MLX inference.
+const vertexBackendID = "vertex-gemini"
+
+func (v *vertexLLMClient) GenerateContentStream(ctx context.Context, model, systemInstruction, prompt string) iter.Seq2[skills.GenChunk, error] {
+	config := &genai.GenerateContentConfig{
+		SystemInstruction: &genai.Content{
+			Parts: []*genai.Part{{Text: systemInstruction}},
+		},
+	}
+	return func(yield func(skills.GenChunk, error) bool) {
+		var usage *skills.Usage
+		for resp, err := range v.client.Models.GenerateContentStream(ctx, model, genai.Text(prompt), config) {
+			if err != nil {
+				yield(skills.GenChunk{}, err)
+				return
+			}
+			if resp.UsageMetadata != nil {
+				usage = &skills.Usage{
+					Backend:          vertexBackendID,
+					Model:            model,
+					PromptTokens:     int(resp.UsageMetadata.PromptTokenCount),
+					CompletionTokens: int(resp.UsageMetadata.CandidatesTokenCount),
+					TotalTokens:      int(resp.UsageMetadata.TotalTokenCount),
+				}
+			}
+			if !yield(skills.GenChunk{Text: resp.Text()}, nil) {
+				return
+			}
+		}
+		if usage != nil {
+			yield(skills.GenChunk{Usage: usage}, nil)
+		}
+	}
+}
+
 // translateEnabled reports whether the LLM-backed skills are configured.
 func translateEnabled() bool {
 	return os.Getenv("GEMINI_TRANSLATE_MODEL") != ""
@@ -109,24 +158,44 @@ func translateModelName() string {
 }
 
 // buildDeps constructs the skills.Deps for the current process configuration.
-// If translate/neologism are disabled (no model env var), GenAI is nil and
-// those skills self-hide.
+// If translate/neologism are disabled (no backend env var), Deps.LLM is nil
+// and those skills self-hide.
+//
+// Backend precedence: LOCAL_LLM_BASE_URL, when set, takes precedence over
+// GEMINI_TRANSLATE_MODEL. This lets a developer point at a local
+// llama-server/mlx_lm.server without needing to unset their Vertex AI
+// config — useful for quickly comparing local Gemma 4 (GGUF via llama.cpp,
+// or MLX via mlx_lm.server) against the hosted Gemini path.
 func buildDeps() *skills.Deps {
 	d := &skills.Deps{
 		Index:       lexiconIndex,
 		TranslateMD: translateSkillMD,
 		NeologismMD: neologismSkillMD,
-		ModelName:   translateModelName(),
 	}
-	if translateEnabled() {
+	switch {
+	case localLLMEnabled():
+		d.ModelName = localLLMModelName()
+		d.LLM = newLocalLLMClient(localLLMBaseURL(), localLLMRuntime(), localLLMMaxTokens())
+		log.Printf("[A2A] Using local OpenAI-compatible LLM backend (base_url=%s, runtime=%s, model=%s, max_tokens=%d)",
+			localLLMBaseURL(), localLLMRuntime(), d.ModelName, localLLMMaxTokens())
+	case translateEnabled():
+		d.ModelName = translateModelName()
 		client, err := initGenAIClient()
 		if err != nil {
 			log.Printf("[A2A] Vertex AI client unavailable; LLM skills disabled: %v", err)
 		} else {
-			d.GenAI = client
+			d.LLM = &vertexLLMClient{client: client}
 		}
 	}
 	return d
+}
+
+// llmBackendEnabled reports whether any LLM backend — local OpenAI-compatible
+// (llama.cpp/mlx_lm.server) or Vertex AI Gemini — is configured. Used to gate
+// translate/neologism visibility on the AgentCard independent of which
+// specific backend buildDeps ends up selecting.
+func llmBackendEnabled() bool {
+	return localLLMEnabled() || translateEnabled()
 }
 
 // ── Executor ──────────────────────────────────────────────────────────────────
@@ -234,7 +303,7 @@ var allScopes = map[string]string{
 func buildAgentCard(baseURL string) *a2a.AgentCard {
 	return &a2a.AgentCard{
 		Name:        "Eldamo Elvish Agent",
-		Description: "Agentic access to Paul Strack's Eldamo Tolkien-language lexicon. Skills: Quenya/Sindarin name generation (deterministic, lexicon-grounded), morphologically-guided translation (Gemini, streaming), and dual-path neologism construction with phonotactic scoring (Gemini, two artifacts).",
+		Description: "Agentic access to Paul Strack's Eldamo Tolkien-language lexicon. Skills: Quenya/Sindarin name generation (deterministic, lexicon-grounded), morphologically-guided translation (LLM-backed, streaming), and dual-path neologism construction with phonotactic scoring (LLM-backed, two artifacts).",
 		Version:     "0.5.0",
 		SupportedInterfaces: []*a2a.AgentInterface{
 			a2a.NewAgentInterface(baseURL+a2aBasePath, a2a.TransportProtocolJSONRPC),
@@ -269,8 +338,9 @@ func buildAgentCard(baseURL string) *a2a.AgentCard {
 	}
 }
 
-// buildSkillList assembles the AgentCard skills slice. The translate skill is
-// included only when GEMINI_TRANSLATE_MODEL is set; otherwise it self-hides,
+// buildSkillList assembles the AgentCard skills slice. The translate and
+// neologism skills are included only when an LLM backend is configured
+// (GEMINI_TRANSLATE_MODEL or LOCAL_LLM_BASE_URL); otherwise they self-hide,
 // matching the ELVISH_TTS_URL / render_elvish_audio conditional pattern.
 func buildSkillList() []a2a.AgentSkill {
 	skills := []a2a.AgentSkill{
@@ -290,7 +360,7 @@ func buildSkillList() []a2a.AgentSkill {
 			},
 		},
 	}
-	if translateEnabled() {
+	if llmBackendEnabled() {
 		skills = append(skills, a2a.AgentSkill{
 			ID:          "neologism",
 			Name:        "Elvish Neologism Builder",
@@ -308,7 +378,7 @@ func buildSkillList() []a2a.AgentSkill {
 		skills = append(skills, a2a.AgentSkill{
 			ID:          "translate",
 			Name:        "Elvish Translator",
-			Description: "Translates English text into Quenya or Sindarin, applying correct morphology, case endings, and consonant mutations. Backed by Gemini with Eldamo lexicon context.",
+			Description: "Translates English text into Quenya or Sindarin, applying correct morphology, case endings, and consonant mutations. LLM-backed (Vertex AI Gemini or a local llama.cpp/mlx_lm.server Gemma model) with Eldamo lexicon context.",
 			Tags:        []string{"linguistics", "translation", "quenya", "sindarin", "tolkien"},
 			Examples: []string{
 				"translate farewell my friend to quenya",
@@ -334,22 +404,22 @@ func buildSkillList() []a2a.AgentSkill {
 // callers via the A2A GetExtendedAgentCard RPC. Differences from the public card:
 //
 //   - All four skills are always listed (translate and neologism included
-//     regardless of GEMINI_TRANSLATE_MODEL, annotated when unavailable).
+//     regardless of LLM backend configuration, annotated when unavailable).
 //   - Richer per-skill descriptions with concrete input examples.
 //   - Provider and documentation URL populated.
 func buildExtendedAgentCard(baseURL string) *a2a.AgentCard {
-	llmAvailable := translateEnabled()
+	llmAvailable := llmBackendEnabled()
 
-	translateDesc := "Translates English text into Quenya or Sindarin using Gemini, applying morphology, case endings, and consonant mutations. Phase 1 fetches Eldamo lexicon roots for grounded vocabulary."
+	translateDesc := "Translates English text into Quenya or Sindarin using an LLM backend (Vertex AI Gemini, or a local llama.cpp/mlx_lm.server Gemma model), applying morphology, case endings, and consonant mutations. Phase 1 fetches Eldamo lexicon roots for grounded vocabulary."
 	neologismDesc := "Constructs new Elvish words for modern concepts. Runs the Anchorage Protocol (GetRootAnchors) then generates two named artifacts: a Practical (functional) path and a Poetic (metaphorical) path, each with a 100-point phonotactic score."
 	if !llmAvailable {
-		translateDesc += " [GEMINI_TRANSLATE_MODEL not configured — skill unavailable on this instance]"
-		neologismDesc += " [GEMINI_TRANSLATE_MODEL not configured — skill unavailable on this instance]"
+		translateDesc += " [No LLM backend configured (GEMINI_TRANSLATE_MODEL or LOCAL_LLM_BASE_URL) — skill unavailable on this instance]"
+		neologismDesc += " [No LLM backend configured (GEMINI_TRANSLATE_MODEL or LOCAL_LLM_BASE_URL) — skill unavailable on this instance]"
 	}
 
 	return &a2a.AgentCard{
 		Name:        "Eldamo Elvish Agent",
-		Description: "Agentic access to Paul Strack's Eldamo Tolkien-language lexicon. Skills: Quenya/Sindarin name generation (deterministic, lexicon-grounded), morphologically-guided translation (Gemini, streaming), and dual-path neologism construction with phonotactic scoring (Gemini, two artifacts).",
+		Description: "Agentic access to Paul Strack's Eldamo Tolkien-language lexicon. Skills: Quenya/Sindarin name generation (deterministic, lexicon-grounded), morphologically-guided translation (LLM-backed, streaming), and dual-path neologism construction with phonotactic scoring (LLM-backed, two artifacts).",
 		Version:     "0.5.0",
 		Provider: &a2a.AgentProvider{
 			Org: "Mithlond",

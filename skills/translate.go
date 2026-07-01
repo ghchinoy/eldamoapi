@@ -2,14 +2,15 @@ package skills
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"google.golang.org/genai"
 )
 
 // ── Input parsing ─────────────────────────────────────────────────────────────
@@ -123,7 +124,7 @@ func lexiconContext(concepts []string, lang string, idx LexiconSearcher) ([]stri
 // ── Executor ──────────────────────────────────────────────────────────────────
 
 // RunTranslate is the translation skill executor.
-// Phase 1 streams lexicon candidates; Phase 2 streams Gemini output.
+// Phase 1 streams lexicon candidates; Phase 2 streams the configured LLM's output.
 func RunTranslate(ctx context.Context, execCtx *a2asrv.ExecutorContext, deps *Deps) iter.Seq2[a2a.Event, error] {
 	return func(yield func(a2a.Event, error) bool) {
 		req := ParseTranslateRequest(execCtx.Message)
@@ -151,20 +152,17 @@ func RunTranslate(ctx context.Context, execCtx *a2asrv.ExecutorContext, deps *De
 		}
 
 		thinkingMsg := a2a.NewMessageForTask(a2a.MessageRoleAgent, execCtx,
-			a2a.NewTextPart(fmt.Sprintf("Translating to %s with Gemini (%s)...", req.targetName, deps.ModelName)))
+			a2a.NewTextPart(fmt.Sprintf("Translating to %s (model: %s)...", req.targetName, deps.ModelName)))
 		if !yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateWorking, thinkingMsg), nil) {
 			return
 		}
 
 		userPrompt := buildTranslatePrompt(req, contextBlock)
-		config := &genai.GenerateContentConfig{
-			SystemInstruction: &genai.Content{
-				Parts: []*genai.Part{{Text: deps.TranslateMD}},
-			},
-		}
 
 		var full strings.Builder
 		var buf strings.Builder
+		var usage *Usage
+		start := time.Now()
 
 		flushBuf := func() bool {
 			s := strings.TrimSpace(buf.String())
@@ -176,16 +174,20 @@ func RunTranslate(ctx context.Context, execCtx *a2asrv.ExecutorContext, deps *De
 			return yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateWorking, chunk), nil)
 		}
 
-		for chunk, streamErr := range deps.GenAI.Models.GenerateContentStream(
-			ctx, deps.ModelName, genai.Text(userPrompt), config) {
+		for chunk, streamErr := range deps.LLM.GenerateContentStream(
+			ctx, deps.ModelName, deps.TranslateMD, userPrompt) {
 			if streamErr != nil {
+				LogUsage("translate", execCtx.User.Name, usage, time.Since(start), streamErr)
 				log.Printf("[Skill:translate] stream error: %v", streamErr)
 				failMsg := a2a.NewMessageForTask(a2a.MessageRoleAgent, execCtx,
 					a2a.NewTextPart(fmt.Sprintf("Generation error: %v", streamErr)))
 				yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateFailed, failMsg), nil)
 				return
 			}
-			text := chunk.Text()
+			if chunk.Usage != nil {
+				usage = chunk.Usage
+			}
+			text := chunk.Text
 			full.WriteString(text)
 			buf.WriteString(text)
 			b := buf.String()
@@ -201,11 +203,13 @@ func RunTranslate(ctx context.Context, execCtx *a2asrv.ExecutorContext, deps *De
 
 		translation := strings.TrimSpace(full.String())
 		if translation == "" {
+			LogUsage("translate", execCtx.User.Name, usage, time.Since(start), errors.New("empty response from LLM backend"))
 			failMsg := a2a.NewMessageForTask(a2a.MessageRoleAgent, execCtx,
-				a2a.NewTextPart("Gemini returned an empty response."))
+				a2a.NewTextPart("The LLM backend returned an empty response."))
 			yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateFailed, failMsg), nil)
 			return
 		}
+		LogUsage("translate", execCtx.User.Name, usage, time.Since(start), nil)
 
 		if !yield(a2a.NewArtifactEvent(execCtx, a2a.NewTextPart(translation)), nil) {
 			return

@@ -24,6 +24,9 @@ The backend evaluates the following variables on startup:
 | `ELVISH_TTS_URL` | (Optional) TTS Synthesizer URL. Production: `https://lhongant.mithlond.com`. Local dev: `http://localhost:8080`. | Set to enable the conditional `render_elvish_audio` MCP tool and A2A audio artifacts. |
 | `GEMINI_TRANSLATE_MODEL` | (Optional) Gemini model for translate and neologism A2A skills. | Skills self-hide when unset. Example: `gemini-3.1-flash-lite`. |
 | `GEMINI_LOCATION` | Vertex AI API location for Gemini skills. **Separate from `GCP_REGION`** (the Cloud Run deploy region). Newer Gemini models (3.x) require `global`; regional endpoints serve older generations. | Defaults to `global`. |
+| `LOCAL_LLM_BASE_URL` | (Optional) Base URL of a local OpenAI-compatible LLM server (llama.cpp's `llama-server`, or mlx-lm's `mlx_lm.server`) for translate/neologism, e.g. `http://localhost:8080`. | **Takes precedence over `GEMINI_TRANSLATE_MODEL` when both are set.** Skills self-hide when neither is set. |
+| `LOCAL_LLM_MODEL` | (Optional) Model identifier sent in each request body. | Defaults to `local-model`. Mostly informational/logging — `llama-server`/`mlx_lm.server` each serve one model per process, so this does not select weights. |
+| `LOCAL_LLM_RUNTIME` | (Optional) Label recorded against usage records to distinguish which local runtime produced a response. | Defaults to `local`. Suggested values: `llama.cpp`, `mlx`. |
 
 
 ## 💻 Local Compilation & Development
@@ -62,6 +65,69 @@ The `render_elvish_audio` MCP tool is conditionally enabled. To use it, you must
    ```
 The `render_elvish_audio` tool will be automatically detected and available to `opencode`.
 
+### 4. Using a Local LLM Backend for translate/neologism (llama.cpp or mlx_lm.server)
+
+By default, the `translate` and `neologism` A2A skills call Vertex AI Gemini
+(`GEMINI_TRANSLATE_MODEL`). For local testing — e.g. against a local Gemma 4
+GGUF or MLX model, or a fine-tuned variant — point the server at a local
+OpenAI-compatible server instead via `LOCAL_LLM_BASE_URL`. Both runtimes below
+expose the same `/v1/chat/completions` streaming protocol, so no other config
+differs between them beyond the port you run them on.
+
+> See **[local-llm-servers.md](local-llm-servers.md)** for the full
+> reference: install steps, runtime comparison, and detailed write-ups of
+> gotchas only briefly noted below (the `mlx_lm.server` model-field
+> requirement, reasoning-mode token starvation, and an IPv6 dial pitfall).
+
+**Option A: llama.cpp (`llama-server`), serving a GGUF model:**
+```bash
+llama-server -m /path/to/model.gguf --port 8080
+```
+
+**Option B: mlx-lm (`mlx_lm.server`), serving an MLX model (Apple Silicon acceleration):**
+```bash
+mlx_lm.server --model /path/to/mlx-model-dir --port 8081
+```
+(Note: `mlx_lm.generate` is a one-shot CLI, not a server — use `mlx_lm.server`.)
+
+Then start eldamo-server pointed at whichever is running:
+```bash
+export LOCAL_LLM_BASE_URL=http://localhost:8080   # or :8081 for mlx_lm.server
+export LOCAL_LLM_MODEL=default_model               # REQUIRED as-is for mlx_lm.server (see warning below); any value works for llama-server
+export LOCAL_LLM_RUNTIME=llama.cpp                 # or "mlx"; tags usage records
+make run-dev
+```
+
+> [!NOTE]
+> `llama-server` and `mlx_lm.server` each load **one model per process**.
+> Switching between models (e.g. stock Gemma 4 vs. a fine-tuned variant, or
+> comparing GGUF vs. MLX) means restarting the relevant server with a
+> different `-m`/`--model` flag, or running separate instances on separate
+> ports and changing `LOCAL_LLM_BASE_URL`.
+
+> [!NOTE]
+> `LOCAL_LLM_BASE_URL` takes precedence over `GEMINI_TRANSLATE_MODEL` when
+> both are set — useful for flipping between local and hosted backends
+> without editing your `.env`.
+
+> [!WARNING]
+> **`mlx_lm.server` requires `LOCAL_LLM_MODEL=default_model`.** Unlike
+> `llama-server` (which serves one model and ignores the request's `model`
+> field), `mlx_lm.server` treats any other value as a Hugging Face repo ID to
+> fetch, and will fail with a 404 for an arbitrary `LOCAL_LLM_MODEL`.
+
+> [!WARNING]
+> **Reasoning-enabled Gemma checkpoints can be very slow or return empty
+> responses against `mlx_lm.server`** for the translate/neologism skills'
+> large system instructions: the model's chain-of-thought is streamed as a
+> separate `reasoning` delta field (not part of the OpenAI spec) *before* any
+> `content` delta, and can consume the entire `max_tokens` budget before
+> producing an answer (`finish_reason: "length"`, empty response). Mitigate
+> with `mlx_lm.server --chat-template-args '{"enable_thinking": false}'` at
+> server startup, which disables the reasoning trace entirely and reduces
+> generation time from minutes to seconds for these skills. `LOCAL_LLM_MAX_TOKENS`
+> (default `4096`, vs. `mlx_lm.server`'s own default of `512`) can also be
+> raised further if you keep reasoning enabled.
 
 ## ⚡ Local Client Configurations
 

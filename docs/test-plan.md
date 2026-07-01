@@ -322,7 +322,120 @@ Claude Desktop) per the README configuration.
 
 ---
 
-## 3. Auth / token matrix
+## 3. Local LLM backend testing (Gemma 4 via llama.cpp / mlx_lm.server)
+
+Validates the local OpenAI-compatible backend (`LOCAL_LLM_BASE_URL`) as an
+alternative to Vertex AI Gemini for the `translate`/`neologism` skills —
+tracked under epic `eldamo-server-hk1`. See
+[local-llm-servers.md](local-llm-servers.md) for server setup commands and
+known runtime gotchas (mlx_lm.server's `model` field requirement, reasoning-
+mode token starvation, IPv6 dial pitfall) — this section only covers
+verifying the eldamo-server side. See
+[model-evaluation.md](model-evaluation.md) for response-quality/cost
+comparison across backends and model variants (a distinct activity from the
+pass/fail testing here).
+
+**Status:** Phases 1, 2, and 3 complete (`eldamo-server-aqr`, `eldamo-server-9zq`,
+`eldamo-server-gut`), covered in §3.2–3.6 below. Phase 4 (cross-backend
+conformance, `eldamo-server-73v`) — not yet implemented; §3.7 is a
+placeholder to fill in when it lands.
+
+### 3.1 Setup
+
+Start **one** local server (see local-llm-servers.md for full commands):
+```bash
+llama-server -m /path/to/model.gguf --port 8123 -c 4096
+# or:
+mlx_lm.server --model /path/to/mlx-model --port 8124 --chat-template-args '{"enable_thinking": false}'
+```
+
+### 3.2 Backend selection verification
+
+```bash
+AUTH_BYPASS=true LOCAL_LLM_BASE_URL=http://localhost:8123 LOCAL_LLM_MODEL=default_model \
+  LOCAL_LLM_RUNTIME=llama.cpp PORT=8099 go run .
+```
+**Expect on startup:**
+```
+[A2A] Using local OpenAI-compatible LLM backend (base_url=http://localhost:8123, runtime=llama.cpp, model=default_model, max_tokens=4096)
+```
+
+**Precedence check** — `LOCAL_LLM_BASE_URL` must win when both are set:
+```bash
+AUTH_BYPASS=true LOCAL_LLM_BASE_URL=http://localhost:8123 GEMINI_TRANSLATE_MODEL=gemini-3.1-flash-lite PORT=8099 go run .
+# -> log line must say "Using local OpenAI-compatible LLM backend", NOT "Vertex AI"
+```
+
+**AgentCard lists translate/neologism regardless of which backend is active:**
+```bash
+a2acli discover --service-url http://127.0.0.1:8099 --output json | jq '.skills[].id'
+# -> "name-generate", "neologism", "translate", "echo"  (gated by llmBackendEnabled(), not a specific backend)
+```
+
+### 3.3 Skill smoke tests — llama.cpp
+
+```bash
+a2acli send "translate to quenya: a star shines" --service-url http://127.0.0.1:8099 --wait
+# -> 1 ARTIFACT with a Quenya translation; TASK_STATE_COMPLETED
+
+a2acli send "neologism starlight quenya" --service-url http://127.0.0.1:8099 --wait
+# -> 2 ARTIFACTS: "Practical Path" and "Poetic Path"; TASK_STATE_COMPLETED
+```
+
+### 3.4 Skill smoke tests — mlx_lm.server
+
+Restart pointed at mlx_lm.server (`LOCAL_LLM_MODEL=default_model` is
+**mandatory** — see Gotcha 1 in local-llm-servers.md):
+```bash
+AUTH_BYPASS=true LOCAL_LLM_BASE_URL=http://localhost:8124 LOCAL_LLM_MODEL=default_model \
+  LOCAL_LLM_RUNTIME=mlx PORT=8099 go run .
+
+a2acli send "translate to sindarin: the grey havens" --service-url http://127.0.0.1:8099 --wait
+# -> 1 ARTIFACT; TASK_STATE_COMPLETED
+# Expect SECONDS if the server was started with --chat-template-args '{"enable_thinking": false}',
+# or potentially MINUTES (or empty-response failure) without it — see Gotcha 2.
+```
+
+### 3.5 Regression: Vertex Gemini path unaffected
+
+```bash
+unset LOCAL_LLM_BASE_URL
+set -a; source .env; set +a && PORT=8099 go run .
+# -> normal Vertex AI Gemini skill behavior, unchanged from before Phase 3
+```
+
+### 3.6 Usage/cost tracking verification (Phase 2 — live)
+
+Every translate/neologism call emits a `[Usage]` log line on server stderr.
+Verify a complete line appears after each skill invocation:
+
+```bash
+# After any translate/neologism call, check the server log:
+grep '\[Usage\]' /tmp/eldamo_run.log
+# Expected format:
+# [Usage] skill=translate user="bypass-user" status=ok backend=llama.cpp \
+#   model=eldamo-gemma prompt_tokens=1225 completion_tokens=26 total_tokens=1251 \
+#   latency=1.131s cost_usd=0.000000
+```
+
+Checklist:
+- [ ] `status=ok` on success; `status=error err=<msg>` on stream failure
+- [ ] `backend=` matches `LOCAL_LLM_RUNTIME` (local) or `vertex-gemini` (Vertex)
+- [ ] `prompt_tokens` / `completion_tokens` are non-zero (from backend `usage` field)
+- [ ] `cost_usd=0.000000` for local backends; non-zero for `gemini-3.1-flash-lite`
+- [ ] Line emitted even on error (e.g. kill llama-server mid-stream)
+
+### 3.7 (Phase 4 — not yet implemented) Cross-backend conformance
+
+_TODO once `eldamo-server-73v` lands: run `a2acli conformance` against the
+same server instance configured for each of Vertex Gemini, llama.cpp, and
+mlx_lm.server in turn, confirming protocol-level behavior (task states,
+artifact shapes, AgentCard) is identical regardless of backend — only
+latency/quality/cost should differ._
+
+---
+
+## 4. Auth / token matrix
 
 | Scenario | Token | `/a2a` | `/sse` |
 | :--- | :--- | :--- | :--- |
@@ -336,7 +449,7 @@ Claude Desktop) per the README configuration.
 
 ---
 
-## 4. Scope matrix
+## 5. Scope matrix
 
 | Token scopes | `/sse` | echo | name-generate | translate | neologism |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -349,7 +462,7 @@ Claude Desktop) per the README configuration.
 
 ---
 
-## 5. Conformance loop with a2acli
+## 6. Conformance loop with a2acli
 
 `a2acli` is the reference real-world A2A client. Validate against it whenever
 the A2A surface or taskstore changes.
@@ -395,7 +508,7 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 
 ---
 
-## 6. CI gate checklist
+## 7. CI gate checklist
 
 - [ ] `go build ./...`
 - [ ] `make test` (unit tests, no Firebase creds required)
@@ -406,3 +519,12 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 - [ ] `a2acli list tasks` returns only the requesting user's tasks
 - [ ] `/sse` returns 401 without a token (MCP regression)
 - [ ] AgentCard `supportedInterfaces[0].url` contains `candir.mithlond.com` (not `localhost`)
+
+### Local-only checks (not part of CI — require local model files / hardware)
+
+Run these manually whenever touching `llm_local.go`, `buildDeps`, or the
+translate/neologism skills:
+
+- [ ] §3.2–3.3: llama.cpp backend selected, precedence correct, both skills complete
+- [ ] §3.4: mlx_lm.server backend selected (`LOCAL_LLM_MODEL=default_model`), both skills complete
+- [ ] §3.5: Vertex Gemini path still works with `LOCAL_LLM_BASE_URL` unset

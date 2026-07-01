@@ -138,11 +138,18 @@ A2A `AgentSkill`s are **declarative metadata** advertised in the AgentCard; the
 SDK does not dispatch by skill — routing is the executor's job. The three
 existing repo skills map directly onto A2A skills:
 
-| Repo skill (`skills/`) | A2A skill (planned) | Execution model |
+| Repo skill (`skills/`) | A2A skill ID | Execution model |
 | :--- | :--- | :--- |
-| `tolkien-name-generator` | `name-generate` | Deterministic Go over the lexicon |
-| `neologism-builder` | `neologism-build` | Deterministic (scoring matrix) |
-| `tolkien-translation` | `translate` | LLM-backed (fast-follow) |
+| `skills/name_generate.go` | `name-generate` | Deterministic Go over the lexicon; no LLM dependency |
+| `skills/neologism.go` | `neologism` | LLM-backed (streaming, two artifacts: Practical + Poetic Path) |
+| `skills/translate.go` | `translate` | LLM-backed (streaming) |
+
+All three skills self-hide on the AgentCard when no LLM backend is configured
+(`neologism` and `translate`), or are always visible (`name-generate`).
+LLM backend is selected at startup via env vars — see
+[DEVELOPMENT.md](DEVELOPMENT.md) for the precedence rules (`LOCAL_LLM_BASE_URL`
+takes priority over `GEMINI_TRANSLATE_MODEL`). A fourth skill, `echo`
+(diagnostic fallback), is always present.
 
 ### 4.3 Transport choice: JSON-RPC
 
@@ -169,10 +176,14 @@ Tracked as `bd` issues under the **A2A exposure** epic (`bd list`).
 | Phase | Goal | Status |
 | :--- | :--- | :--- |
 | **1. Wiring spike** | Mount A2A JSON-RPC + AgentCard behind `oauthMiddleware`; echo executor; verify with `a2acli` | ✅ Done |
-| **2. Claims + scope gating** | Stash claims in context; `CallInterceptor` for `User`/scopes; wire MCP `gate()` | Planned |
-| **3. First real skill** | `name-generate` (deterministic) over the lexicon, streaming progress | Planned |
-| **4. AgentCard security + scopes** | `OAuth2SecurityScheme` in card; new scopes in `eldamo-admin` | Planned |
-| **5. Production hardening** | Firestore `taskstore`, conformance tests, deploy/env, docs | Planned |
+| **2. Claims + scope gating** | Stash claims in context; `CallInterceptor` for `User`/scopes; wire MCP `gate()` | ✅ Done |
+| **3. First real skill** | `name-generate` (deterministic) over the lexicon, streaming progress | ✅ Done |
+| **4. AgentCard security + scopes** | `OAuth2SecurityScheme` in card; new scopes in `eldamo-admin` | ✅ Done |
+| **5. Production hardening** | Firestore `taskstore`, conformance tests, deploy/env, docs | ✅ Done |
+
+Local LLM support (Gemma 4 via llama.cpp / mlx_lm.server) and per-call
+token/cost tracking are tracked separately under epic `eldamo-server-hk1`
+(`bd show eldamo-server-hk1`).
 
 ---
 
