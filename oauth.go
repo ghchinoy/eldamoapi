@@ -892,9 +892,9 @@ func oauthMiddleware(next http.Handler) http.Handler {
 		}
 
 		if tokenStr == "" {
-			// Print headers for debugging purposes to see if the client sent the token in an unexpected way
-			log.Printf("[Auth] Debug Headers for %s %s: %+v", r.Method, r.URL.Path, r.Header)
-
+			// No token at all — expected for health-check probes (e.g. Spark's
+			// bare HEAD /sse before each conversation turn). Log concisely; do
+			// NOT dump headers here as that produces noisy output on every probe.
 			log.Printf("[Auth] Rejected request %s %s: Missing access token", r.Method, r.URL.Path)
 			w.Header().Set("Content-Type", "application/json")
 			// Add standard WWW-Authenticate header to signal OAuth 2.1 authentication
@@ -922,7 +922,11 @@ func oauthMiddleware(next http.Handler) http.Handler {
 		})
 
 		if err != nil || !token.Valid {
+			// A token was present but failed validation — this is worth
+			// inspecting. Log full headers to help diagnose key mismatches,
+			// clock skew, or unexpected signing methods.
 			log.Printf("[Auth] Rejected request %s %s: Invalid or expired token: %v", r.Method, r.URL.Path, err)
+			log.Printf("[Auth] Debug Headers for %s %s: %+v", r.Method, r.URL.Path, r.Header)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			_ = json.NewEncoder(w).Encode(map[string]string{

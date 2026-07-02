@@ -8,6 +8,22 @@ set -euo pipefail
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPTS_DIR")"
 
+# ---------------------------------------------------------------------------
+# --no-traffic flag: deploy the new revision without shifting any traffic to
+# it. Use this when active Spark/MCP sessions are running — it prevents the
+# Cloud Run rollout from causing 409 Conflict on existing GET /sse streaming
+# connections. After the deploy completes, cut traffic over manually with:
+#   gcloud run services update-traffic eldamo-mcp-server \
+#     --to-latest --region us-central1
+# Usage: ./scripts/deploy.sh --no-traffic
+# ---------------------------------------------------------------------------
+NO_TRAFFIC=false
+for arg in "$@"; do
+    if [ "$arg" = "--no-traffic" ]; then
+        NO_TRAFFIC=true
+    fi
+done
+
 ENV_FILE="$PROJECT_ROOT/.env"
 
 # Default fallback values
@@ -150,6 +166,13 @@ echo "Deploying..."
 #   The Streamable HTTP MCP transport holds long-lived GET /sse streaming connections
 #   open for the duration of an MCP session. Without this, Cloud Run kills them at 5
 #   minutes, forcing clients (e.g. Gemini Spark) to repeatedly drop and reconnect.
+TRAFFIC_FLAG=""
+if [ "$NO_TRAFFIC" = "true" ]; then
+    TRAFFIC_FLAG="--no-traffic"
+    echo "-> Deploying with --no-traffic. Active sessions will not be disrupted."
+    echo "   When ready to cut over: gcloud run services update-traffic $SERVICE_NAME --to-latest --region $GCP_REGION"
+fi
+
 gcloud run deploy "$SERVICE_NAME" \
     --source "$PROJECT_ROOT" \
     --region "$GCP_REGION" \
@@ -161,7 +184,8 @@ gcloud run deploy "$SERVICE_NAME" \
     --session-affinity \
     --max-instances 1 \
     --timeout 3600 \
-    --set-env-vars "$ENV_VARS"
+    --set-env-vars "$ENV_VARS" \
+    $TRAFFIC_FLAG
 
 echo ""
 echo "========================================="

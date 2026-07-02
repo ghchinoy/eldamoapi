@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/ghchinoy/eldamoapi/data"
@@ -454,11 +455,18 @@ func main() {
 	}
 	log.Printf("Successfully loaded search index with %d words.", len(lexiconIndex.Words))
 
-	// Instantiate the MCP server
+	// Instantiate the MCP server. KeepAlive sends a ping to the client every
+	// 30 seconds via the open GET /sse streaming channel. This prevents the
+	// channel going idle — which causes Spark's OpenAuth library to close and
+	// reopen it, producing 409 Conflict when the SDK still holds the old slot.
+	// If the client stops responding to pings the SDK closes the session
+	// cleanly, letting the client reconnect fresh rather than getting stuck.
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "eldamo-mcp-server",
 		Version: "1.0.0",
-	}, nil)
+	}, &mcp.ServerOptions{
+		KeepAlive: 30 * time.Second,
+	})
 
 	// Register tools using type-safe AddTool helper
 	mcp.AddTool(server, &mcp.Tool{
