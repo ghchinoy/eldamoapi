@@ -39,6 +39,13 @@ TOKEN=$(make token)          # default UID=dev-user; override: make token UID=al
 | :--- | :--- | :--- |
 | Index build & search | `index/index_test.go` | Trie prefix, inverted keyword, derivations, root anchors |
 | MCP tool handlers | `main_test.go`, `search_test.go` | Tool behaviour, filters, dedup, caps |
+| MCP transport root mount | `main_test.go` → `TestRootPathMountedForBaseURLProbes` | POST/HEAD/GET `/` return 401 (not 404); unknown paths still 404 |
+| RFC 8414 auth-server metadata | `main_test.go` → `TestOAuthDiscovery` | GET returns JSON with `registration_endpoint` + `client_id_metadata_document_supported`; POST rejected |
+| RFC 9728 protected resource metadata | `main_test.go` → `TestProtectedResourceMetadata` | Bare path, `/sse` suffix, OPTIONS CORS, POST rejected |
+| RFC 9728 WWW-Authenticate pointer | `main_test.go` → `TestUnauthorizedChallengePointsToPRM` | 401 on `/sse` carries `resource_metadata` URL |
+| RFC 7591 DCR — validation | `oauth_dcr_test.go` → `TestBuildClientRegistration` | Valid public client, missing redirect_uris, non-loopback http, too many URIs, confidential method rejected |
+| RFC 7591 DCR — HTTP handler | `oauth_dcr_test.go` → `TestHandleClientRegistration` | 201 + no `client_secret`, 400 on bad input, 405 on non-POST |
+| Client identity dispatch | `oauth_dcr_test.go` → `TestClientIDDispatch` | URL → CIMD path, opaque → DCR store; store-unavailable error surfaces correctly |
 | OAuth / CIMD / SSRF / middleware | `main_test.go` | JWT verify, CIMD parsing, SSRF dialer, redirect matching |
 | A2A handler + AgentCard | `a2a_test.go` | Card HTTP surface, OAuth2 schemes, auth matrix (401/403/200), executor routing, scope rejection |
 | Compounding & parsing | `a2a_test.go` | `joinRoots` (vowel elision, consonant assimilation), `parseNameRequest`, `isNameRequest`, `isUsableWord` |
@@ -310,7 +317,59 @@ Expected output:
 
 ---
 
-### 2.6 MCP regression (no breakage)
+### 2.6 OAuth discovery and DCR
+
+```bash
+# RFC 8414 — authorization-server metadata includes registration_endpoint
+curl -s http://127.0.0.1:8099/.well-known/oauth-authorization-server | jq '{registration_endpoint, client_id_metadata_document_supported}'
+# -> { "registration_endpoint": "http://127.0.0.1:8099/api/oauth/register", "client_id_metadata_document_supported": true }
+
+# RFC 9728 — protected resource metadata, bare path
+curl -s -H "Host: candir.mithlond.com" http://127.0.0.1:8099/.well-known/oauth-protected-resource | jq '{resource, authorization_servers}'
+# -> { "resource": "https://candir.mithlond.com", "authorization_servers": ["https://candir.mithlond.com"] }
+
+# RFC 9728 — path-suffixed variant (what Spark probes first)
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8099/.well-known/oauth-protected-resource/sse
+# -> 200
+
+# 401 challenge carries the resource_metadata pointer
+curl -s -i http://127.0.0.1:8099/sse 2>&1 | grep -i "www-authenticate"
+# -> Www-Authenticate: Bearer realm="Mithlond", ..., resource_metadata="https://candir.mithlond.com/.well-known/oauth-protected-resource"
+
+# RFC 7591 DCR — register a public client
+curl -s -X POST http://127.0.0.1:8099/api/oauth/register \
+  -H "Content-Type: application/json" \
+  -d '{"redirect_uris":["https://spark.example/callback"],"client_name":"Test"}' | jq '{client_id, token_endpoint_auth_method}'
+# -> { "client_id": "mcp-client-...", "token_endpoint_auth_method": "none" }
+# NOTE: no client_secret in response — public client confirmed
+
+# DCR — missing redirect_uris -> 400
+curl -s -o /dev/null -w "%{http_code}\n" -X POST http://127.0.0.1:8099/api/oauth/register \
+  -H "Content-Type: application/json" -d '{}'
+# -> 400
+```
+
+---
+
+### 2.7 Base-URL probes (Spark transport check)
+
+```bash
+# POST / — was 404 before n3l.3, now 401 (transport mounted at exact root)
+curl -s -o /dev/null -w "%{http_code}\n" -X POST http://127.0.0.1:8099/
+# -> 401
+
+# HEAD / — was 404 before n3l.3
+curl -s -o /dev/null -w "%{http_code}\n" -I http://127.0.0.1:8099/
+# -> 401
+
+# Unknown paths still 404 — the /{$} pattern is exact-match only
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8099/favicon.ico
+# -> 404
+```
+
+---
+
+### 2.8 MCP regression (no breakage)
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}\n" -X POST http://127.0.0.1:8099/sse -d '{}'
@@ -514,10 +573,17 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 - [ ] `make test` (unit tests, no Firebase creds required)
 - [ ] `set -a; source .env; set +a && go test ./...` (includes Firestore taskstore tests)
 - [ ] `golangci-lint run ./...` → `0 issues.`
+- [ ] `/.well-known/oauth-protected-resource` returns 200 with `authorization_servers`
+- [ ] `/.well-known/oauth-protected-resource/sse` returns 200 (path-suffix variant)
+- [ ] `/.well-known/oauth-authorization-server` includes `registration_endpoint`
+- [ ] `401` on `/sse` (no token) carries `WWW-Authenticate: Bearer … resource_metadata=…`
+- [ ] `POST /api/oauth/register` with `redirect_uris` returns 201 with `client_id`, no `client_secret`
+- [ ] `POST /` (base-URL probe) returns 401, not 404
+- [ ] `GET /favicon.ico` (unknown path) still returns 404
 - [ ] `a2acli conformance --service-url https://candir.mithlond.com --token "$(make token)"` → all PASS
 - [ ] `a2acli get <taskID>` after `send --immediate` succeeds (Firestore persistence)
 - [ ] `a2acli list tasks` returns only the requesting user's tasks
-- [ ] `/sse` returns 401 without a token (MCP regression)
+- [ ] `/sse` returns 401 without a token (MCP regression — CIMD clients unaffected)
 - [ ] AgentCard `supportedInterfaces[0].url` contains `candir.mithlond.com` (not `localhost`)
 
 ### Local-only checks (not part of CI — require local model files / hardware)

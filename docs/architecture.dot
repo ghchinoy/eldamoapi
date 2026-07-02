@@ -75,7 +75,8 @@ digraph G {
 
         loader [label="Data Loader\n(Embed FS)", shape=box, fillcolor="#D1FAE5", color="#A7F3D0", fontcolor="#065F46"];
         index [label="In-Memory Index\n(Trie & Inverted Index)", shape=box, fillcolor="#D1FAE5", color="#A7F3D0", fontcolor="#065F46"];
-        oauth_handlers [label="OAuth Handlers\n(Authorize & Token Exchange)", shape=component, fillcolor="#D1FAE5", color="#A7F3D0", fontcolor="#065F46"];
+        oauth_handlers [label="OAuth Handlers\n(Authorize, Token Exchange,\nDCR Register)", shape=component, fillcolor="#D1FAE5", color="#A7F3D0", fontcolor="#065F46"];
+        discovery [label="Public Discovery\n(RFC 9728 PRM +\nRFC 8414 Auth Server)", shape=note, fillcolor="#D1FAE5", color="#A7F3D0", fontcolor="#065F46"];
         auth_middleware [label="oauthMiddleware\n(Bearer JWT validation)", shape=shield, fillcolor="#D1FAE5", color="#A7F3D0", fontcolor="#065F46"];
         sse_server [label="SSE Multiplexer\n(/sse & POST /messages)", shape=ellipse, fillcolor="#D1FAE5", color="#A7F3D0", fontcolor="#065F46"];
 
@@ -93,7 +94,7 @@ digraph G {
         style="filled,dashed";
         fillcolor="#FEF3C7"; // Amber 50
 
-        firestore_db [label="authorized_users & mcp_auth_codes\n(mithlond-services database)", shape=cylinder, fillcolor="#FDE68A", color="#FCD34D", fontcolor="#78350F"];
+        firestore_db [label="authorized_users, mcp_auth_codes\n& registered_clients\n(mithlond-services database)", shape=cylinder, fillcolor="#FDE68A", color="#FCD34D", fontcolor="#78350F"];
         ttl_policy [label="5-min TTL Policy\n(Automatic expiry)", shape=component, fillcolor="#FDE68A", color="#FCD34D", fontcolor="#78350F"];
 
         firestore_db -> ttl_policy [label=" Purges codes"];
@@ -108,19 +109,20 @@ digraph G {
         style="filled,dashed";
         fillcolor="#F5F3FF"; // Violet 50
 
-        client_domain [label="Client DNS Domain\n(metadata.json file)", shape=folder, fillcolor="#EDE9FE", color="#DDD6FE", fontcolor="#4C1D95"];
-        agent [label="AI Coding Agent\n(e.g., opencode, Claude)", shape=actor, fillcolor="#EDE9FE", color="#DDD6FE", fontcolor="#4C1D95"];
-
-        agent -> client_domain [label=" Owns & hosts CIMD"];
+        client_domain [label="CIMD Client\n(hosts metadata.json)\ne.g. opencode", shape=folder, fillcolor="#EDE9FE", color="#DDD6FE", fontcolor="#4C1D95"];
+        agent [label="DCR Client\n(auto-registers)\ne.g. Gemini Spark", shape=box, fillcolor="#EDE9FE", color="#DDD6FE", fontcolor="#4C1D95"];
     }
 
     // Connections across sections
     jsonl_out -> loader [label=" Embedded FS", style=dashed, color="#0284C7"];
     fb_hosting -> oauth_handlers [label=" Proxy rewrites\n/api/oauth/**", color="#BE185D"];
-    auth_spa -> oauth_handlers [label=" POST ID Token", color="#BE185D"];
-    oauth_handlers -> firestore_db [label=" Manage User\n& Auth Codes", color="#B45309"];
-    oauth_handlers -> client_domain [label=" Dynamic CIMD Fetch\n(SSRF-Safe GET)", color="#047857"];
-    agent -> fb_hosting [label=" 1. Initiate Login Flow\n(Redirect to /mcp-auth)", color="#6D28D9"];
-    agent -> oauth_handlers [label=" 2. Exchange code\n(Trade for Access JWT)", color="#6D28D9"];
-    agent -> auth_middleware [label=" 3. Connect to tools\n(Authorization Bearer JWT)", color="#6D28D9"];
+    auth_spa -> oauth_handlers [label=" POST ID Token\n+ client_id", color="#BE185D"];
+    oauth_handlers -> firestore_db [label=" Manage Users,\nAuth Codes &\nRegistered Clients", color="#B45309"];
+    oauth_handlers -> client_domain [label=" CIMD Fetch\n(SSRF-safe GET)", color="#047857", style=dashed];
+    client_domain -> fb_hosting [label=" 1. Initiate OAuth\n(CIMD path)", color="#6D28D9"];
+    client_domain -> oauth_handlers [label=" 2. Token exchange", color="#6D28D9"];
+    client_domain -> auth_middleware [label=" 3. Bearer JWT", color="#6D28D9"];
+    agent -> oauth_handlers [label=" 1. DCR Register\n(POST /api/oauth/register)", color="#4C1D95"];
+    agent -> fb_hosting [label=" 2. Consent\n(/mcp-auth)", color="#4C1D95"];
+    agent -> auth_middleware [label=" 3. Bearer JWT", color="#4C1D95"];
 }

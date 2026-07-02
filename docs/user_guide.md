@@ -56,6 +56,31 @@ Append the following `eldamo-remote` block inside your `mcpServers` object:
 }
 ```
 
+### ✨ Gemini Spark (gemini.google.com Connected Apps)
+
+Gemini Spark supports **automatic registration** — no token or pre-registration required.
+
+**Requirements:** Gemini Spark access (US, personal Google Account, 18+, Keep Activity on).
+
+1. Go to [gemini.google.com](https://gemini.google.com) → **Settings & help** → **Connected Apps**.
+2. Under "Custom apps for Spark", enter the MCP server URL:
+   ```
+   https://candir.mithlond.com
+   ```
+   (The bare domain works; `/sse` also works.)
+3. Click **Next**. Spark will:
+   - Discover the server via `/.well-known/oauth-protected-resource` (RFC 9728)
+   - Auto-register via `POST /api/oauth/register` (RFC 7591 DCR — "automatic registration")
+   - Redirect to the Mithlond consent page at `https://www.mithlond.com/mcp-auth`
+4. Sign in with your Google account and click **Approve and Connect**.
+5. Spark redirects back and the connection is active.
+
+> **Prerequisite:** Your Google UID must be added to the `authorized_users` Firestore collection by the server administrator before the consent step will succeed. Contact the admin with your Google account email.
+
+> **Troubleshooting — "does not support automatic registration":** This error appears on older server deployments that predate RFC 9728 / DCR support. Ensure you are connecting to the current deployment (check `candir.mithlond.com` is the latest Cloud Run revision). If the error persists, use the manual client ID / secret fallback (advanced settings in the Spark UI), which is not currently supported — escalate to the admin.
+
+---
+
 ### 📂 opencode / CLI Agents
 
 You can configure opencode to use either **Pre-Authenticated** headers or the **Dynamic OAuth 2.1** flow:
@@ -121,10 +146,16 @@ If your assistant is having issues establishing a connection, check the common t
 
 ### Issue C: `Incompatible auth server: does not support dynamic client registration`
 * **Description:** OpenCode halts diagnostic connections with this dynamic client registration error.
-* **The Cause:** OpenCode failed to read the OAuth capability hints from the server or loaded a conflicting local `opencode.json` configuration that omitted the `oauth` block.
+* **The Cause:** OpenCode uses CIMD (not DCR) and expects the OAuth discovery document to match what is in the local `opencode.json` `oauth` block. This error fires when OpenCode loaded a conflicting or stale configuration that omitted the `oauth` block, or is pointing at the raw Cloud Run URL instead of the `candir.mithlond.com` domain.
 * **The Fix:** 
-  * Ensure you don't have a redundant parent `opencode.json` overriding your local configuration with stale headers (like static environment variables).
+  * Ensure your `opencode.json` has the `oauth` block (see Option B above) with `clientId: "https://www.mithlond.com/metadata.json"`.
+  * Ensure you don't have a redundant parent `opencode.json` overriding your local configuration with stale headers.
   * Run `opencode mcp auth logout eldamo-remote` and clear the local cache: `rm -rf ~/.cache/opencode/*` before authenticating again.
+
+### Issue D: Gemini Spark consent page shows "Invalid Client ID URL"
+* **Description:** The Mithlond consent SPA shows a confusing error label next to the client identity.
+* **The Cause:** This was a display bug in the SPA (`mcp-auth.html`) that showed "Invalid Client ID URL" for DCR-issued (opaque) `client_id`s. It was fixed in `mithlond-web` commit `890b237`.
+* **The Fix:** Ensure the `mithlond-web` Firebase Hosting deployment is up to date (`firebase deploy --only hosting` from the `mithlond-web` repo). The underlying authorization was always functional — only the display label was wrong.
 
 
 ## 4. Verify Your Connection

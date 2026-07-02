@@ -43,41 +43,92 @@ At 24MB, the entire lexicon can be easily stored in memory (~22,000 entries). To
 - **Language Map:** Quick lookup by Elvish language dialect (`q` for Quenya, `s` for Sindarin, `t` for Telerin, etc.).
 
 ### Exposed MCP Tools
-The server publishes three specialized tools:
+The server publishes five specialized tools:
 - `enquire_lexicon`: The primary tool for general exploration.
 - `get_word_details`: Fetches full morphological detail, notes, and references for a specific page-ID.
 - `get_derivations`: Lists words derived from this word, or the roots this word derived from.
+- `get_root_anchors`: Retrieves proper names (characters, places) recursively derived from a root.
+- `render_elvish_audio`: Synthesizes pronunciation via a TTS proxy (enabled by `ELVISH_TTS_URL`).
+
+### Transport endpoints
+The MCP multiplexer supports both SSE and Streamable HTTP transports and is mounted at two paths:
+
+| Path | Description |
+| :--- | :--- |
+| `/sse` | Primary MCP endpoint (SSE + Streamable HTTP multiplexed) |
+| `/` (exact root) | Convenience alias — allows clients to paste the bare domain URL |
+
+Both require a valid Bearer JWT and share the same `oauthMiddleware → sseLogging → gate("lexicon:read")` chain.
 
 
+## 4. OAuth 2.1 Security: Public Discovery + Multiple Client Onboarding Paths
 
-## 4. Secure OAuth 2.1 & CIMD Authentication
+The server implements the current MCP Authorization specification, which layers three RFCs to achieve both broad compatibility and zero-database convenience:
 
-To allow decentralized, safe, and frictionless access for third-party AI agents without requiring manual API key distribution or exposing our database to registration spam, we utilize **OAuth 2.1 with Client ID Metadata Documents (CIMD)**:
+### 4.1 Public Discovery (RFC 9728 + RFC 8414)
 
-### 1. Zero-Database Client Registration
-- Instead of using a server-issued random string, the client's identity is an HTTPS URL controlled by the client application (e.g., `client_id = https://app.client.example/mcp-client-metadata.json`).
-- During authorization, the Go server performs a secure, SSRF-resistant fetch to this URL to dynamically read client metadata (e.g., `redirect_uris`, `client_name`).
-- Trust is established purely via DNS ownership and transport security.
+The discovery chain a client walks before it can authenticate:
 
-### 2. Firebase Web Authentication SPA (`mithlond-web`)
-- Reuses the existing **`mithlond-web`** Firebase Hosting project.
-- Firebase Hosting hosts `public/mcp-auth.html` which handles user authentication popup flows using the Firebase Web SDK.
-- To avoid Cross-Origin Resource Sharing (CORS) errors, Firebase Hosting reverse-proxies `/api/oauth/**` requests directly to the Cloud Run Go backend.
+```
+1. Client probes:  GET /.well-known/oauth-protected-resource[/<path>]
+                   → RFC 9728 Protected Resource Metadata (PRM)
+                   → declares which authorization_server protects this resource
 
-### 3. Granular Tool Authorization (ACL Gating)
-Beyond simple authentication, we implement granular control:
+2. Client fetches: GET /.well-known/oauth-authorization-server
+                   → RFC 8414 Authorization Server Metadata
+                   → provides token_endpoint, registration_endpoint, etc.
+
+3. 401 challenge on /sse or /:
+   WWW-Authenticate: Bearer resource_metadata="https://candir.mithlond.com/.well-known/oauth-protected-resource"
+```
+
+Both discovery endpoints are **public/unauthenticated**. The PRM also responds correctly to path-suffixed probes (`/.well-known/oauth-protected-resource/sse`, `.../a2a`) that RFC 9728 clients send to identify the specific resource they are accessing.
+
+### 4.2 Client Onboarding: CIMD and DCR (pluggable front doors)
+
+Client identity acquisition is a **pluggable front door** — two mechanisms are accepted, both converging on the same `authorization_code + PKCE` core:
+
+| Mechanism | client_id shape | How it works | Typical client |
+| :--- | :--- | :--- | :--- |
+| **CIMD** (Client ID Metadata Document) | HTTPS URL (e.g. `https://www.mithlond.com/metadata.json`) | Server fetches the URL via an SSRF-safe client, reads `redirect_uris` and `client_name` dynamically. Trust via DNS ownership. | opencode, CIMD-aware agents |
+| **DCR** (RFC 7591 Dynamic Client Registration) | Opaque string (prefix `mcp-client-`) | Client POSTs `redirect_uris` to `POST /api/oauth/register`; server issues a `client_id`, persists to Firestore `registered_clients`. | Gemini Spark, most standard OAuth clients |
+
+The authorization-server metadata advertises both:
+```json
+{
+  "registration_endpoint": "https://candir.mithlond.com/api/oauth/register",
+  "client_id_metadata_document_supported": true
+}
+```
+
+`resolveClient()` in `oauth.go` dispatches by `client_id` shape at the authorize step: URL → CIMD fetch; opaque → Firestore lookup. The token exchange (`handleTokenExchange`) and JWT issuance are identical regardless of onboarding path.
+
+### 4.3 Firebase Web Authentication SPA (`mithlond-web`)
+
+- Firebase Hosting hosts `public/mcp-auth.html`, the user consent SPA, at `https://www.mithlond.com/mcp-auth`.
+- Firebase Hosting reverse-proxies `/api/oauth/**` to Cloud Run — this covers `/api/oauth/authorize-callback`, `/api/oauth/token`, and `/api/oauth/register`, eliminating CORS issues.
+- The SPA handles both CIMD client_ids (URL-shaped, displays hostname) and DCR client_ids (opaque string, displays "Registered Application") in its consent UI.
+
+### 4.4 Granular Tool Authorization (ACL Gating)
+Beyond authentication, the server implements granular control:
 - **`authorized_users` Collection:** Stores user-specific records in Firestore including `active` status, `roles`, and `scopes`.
-- **JWT Embedding:** When the token issuer (`handleTokenExchange`) generates a custom JWT, it queries the user's `scopes` and `roles` from Firestore and embeds them into the JWT claims (`sub`, `scopes`, `roles`).
-- **Middleware Gating:** The Go server enforces these permissions using a `gate` middleware. MCP handlers are wrapped: `mux.Handle("/sse", gate("lexicon:read", secureHandler))`. This validates the claims locally without DB hits during tool execution.
+- **JWT Embedding:** `handleTokenExchange` embeds the user's `scopes` and `roles` into JWT claims (`sub`, `scopes`, `roles`).
+- **Middleware Gating:** `gate("lexicon:read", handler)` validates claims locally during tool execution — no Firestore lookup during active calls.
 
-### 4. Stateless Signed Access Tokens (JWT)
-- On code exchange at `/api/oauth/token` (validated via PKCE S256), the server issues stateless, HMAC-SHA256 signed JSON Web Tokens (JWT).
-- During active tool calls at `/sse`, the Go server executes `oauthMiddleware` locally, validating the JWT signature and expiration **without querying Firestore during active tool calls**. This makes the entire session validation loop CPU-bound, sub-millisecond, and exceptionally scalable.
+### 4.5 Stateless Signed Access Tokens (JWT)
+- `authorization_code + PKCE S256` exchange at `/api/oauth/token` issues HMAC-SHA256 signed JWTs.
+- `oauthMiddleware` validates the JWT signature and expiration **locally** during tool calls — the session validation loop is CPU-bound, sub-millisecond, and stateless.
+- One token works for **both** `/sse` (MCP) and `/a2a` (A2A) — "one token, both protocols".
 
-### 5. Transient Firestore Codes
-- **Firestore Collection (`mcp_auth_codes`):** Setup on the dedicated `mithlond-services` database instance.
-- Stores ONLY temporary 5-minute authorization codes during the token exchange handshake.
-- A **Time-To-Live (TTL)** policy automatically purges codes from Firestore immediately upon expiration.
+### 4.6 Firestore Collections
+
+| Collection | Purpose | Notes |
+| :--- | :--- | :--- |
+| `authorized_users` | User authorization records (`active`, `scopes`, `roles`) | Managed via `eldamo-admin` CLI |
+| `mcp_auth_codes` | Transient 5-minute PKCE auth codes | 5-min TTL policy; single-use, deleted on exchange |
+| `registered_clients` | DCR-registered clients (`client_id` → `redirect_uris`, metadata) | Written by `/api/oauth/register`; read by `resolveClient()` |
+
+All collections are in the `mithlond-services` Firestore database (not `(default)`).
 
 
 ## 5. Administrative Tooling Pattern

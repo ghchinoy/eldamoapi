@@ -35,7 +35,9 @@ tools.** Both read the same lexicon; both are gated by the same JWT verifier.
    web framework.
 4. **Public discovery, protected protocol.** Discovery documents
    (`/.well-known/*`) are unauthenticated; the protocol endpoints they advertise
-   require a Bearer JWT.
+   require a Bearer JWT. The discovery chain follows RFC 9728 → RFC 8414: clients
+   first probe `/.well-known/oauth-protected-resource` (PRM), which points to the
+   authorization server at `/.well-known/oauth-authorization-server`.
 5. **Deterministic-first skills.** A2A skills start as pure-Go logic over the
    lexicon (no LLM dependency). LLM-backed skills (e.g. free translation) are an
    opt-in fast-follow, not a baseline requirement.
@@ -47,13 +49,17 @@ tools.** Both read the same lexicon; both are gated by the same JWT verifier.
 | Concern | File / symbol |
 | :--- | :--- |
 | Server bootstrap, mux, routes | `main.go` → `main()` |
-| MCP server + tool registration | `main.go:399` (`mcp.NewServer`, `mcp.AddTool`) |
+| MCP server + tool registration | `main.go` (`mcp.NewServer`, `mcp.AddTool`) |
 | MCP transport multiplexer | `main.go` → `McpMultiplexerHandler` (SSE + Streamable HTTP) |
-| A2A echo executor (Phase 1) | `a2a.go` → `echoAgentExecutor` |
+| RFC 9728 Protected Resource Metadata | `main.go` → `handleProtectedResourceMetadata` |
+| RFC 8414 Authorization Server Metadata | `main.go` → `handleOAuthDiscovery` |
+| A2A echo executor | `a2a.go` → `echoAgentExecutor` |
 | A2A AgentCard builder | `a2a.go` → `buildAgentCard`, `handleAgentCard` |
 | A2A JSON-RPC handler | `a2a.go` → `newA2AHandler` (`a2asrv.NewJSONRPCHandler`) |
 | Shared security gate | `oauth.go` → `oauthMiddleware` |
-| OAuth token exchange / callback / CIMD | `oauth.go` → `handleTokenExchange`, `handleAuthCallback`, `FetchAndValidateCIMD` |
+| Client identity resolution (CIMD + DCR) | `oauth.go` → `resolveClient`, `FetchAndValidateCIMD`, `getRegisteredClient` |
+| RFC 7591 Dynamic Client Registration | `oauth.go` → `handleClientRegistration` |
+| OAuth token exchange / callback | `oauth.go` → `handleTokenExchange`, `handleAuthCallback` |
 | Lexicon index (shared core) | `index/index.go` → `index.Index` |
 | Admin / token CLI | `cmd/eldamo-admin` |
 
@@ -62,11 +68,15 @@ tools.** Both read the same lexicon; both are gated by the same JWT verifier.
 | Path | Auth | Purpose |
 | :--- | :--- | :--- |
 | `GET /healthz` | none | Liveness probe |
-| `GET /.well-known/oauth-authorization-server` | none | OAuth 2.1 server metadata |
+| `GET /.well-known/oauth-authorization-server` | none | RFC 8414 — OAuth authorization server metadata |
+| `GET /.well-known/oauth-protected-resource` | none | RFC 9728 — Protected Resource Metadata (bare) |
+| `GET /.well-known/oauth-protected-resource/*` | none | RFC 9728 — path-suffixed variants (e.g. `/sse`, `/a2a`) |
 | `GET /.well-known/agent-card.json` | none | A2A AgentCard discovery |
+| `POST /api/oauth/register` | none | RFC 7591 DCR — register a public client, receive `client_id` |
 | `POST /api/oauth/authorize-callback` | Firebase ID token | Consent-SPA callback → issues auth code |
 | `POST /api/oauth/token` | PKCE / refresh | Token exchange |
-| `* /sse` | Bearer JWT | **MCP** (transactional) |
+| `* /` (exact root) | Bearer JWT | **MCP** — convenience alias for base-URL probes |
+| `* /sse` | Bearer JWT | **MCP** (transactional) — SSE + Streamable HTTP multiplexed |
 | `* /a2a`, `/a2a/` | Bearer JWT | **A2A** (interactional) |
 
 ---
@@ -111,15 +121,22 @@ The existing `gate()` / `authorizeScopes` helpers and the scope vocabulary
 
 ### 3.4 Client auth ergonomics
 
-- **MCP clients** (opencode, Claude Desktop) run the full interactive OAuth /
-  CIMD flow via the consent SPA.
-- **A2A clients** like [`a2acli`](https://github.com/ghchinoy/a2acli) are
-  passthrough-auth: obtain a JWT out-of-band and pass `--token`. The dev loop is
-  `set -a; source .env; set +a` then `a2acli --token "$(make token)" send …`.
-  `make token` reads `JWT_SIGNING_KEY` from child-process environment. Plain
-  `source .env` only sets a shell variable — use `set -a` (auto-export) so the
-  key is actually inherited by `go run ./cmd/eldamo-admin/`; otherwise it falls
-  back to the hardcoded dev key and Cloud Run rejects the mismatch.
+Client identity acquisition is a **pluggable front door**: two onboarding mechanisms
+converge on the same `authorization_code + PKCE` core and produce the same JWT.
+
+- **CIMD clients** (opencode) set `client_id` to the HTTPS URL of a hosted metadata
+  document (`https://www.mithlond.com/metadata.json`). The server fetches it via an
+  SSRF-safe client to read `redirect_uris`. No pre-registration needed.
+
+- **DCR clients** (Gemini Spark, most standard OAuth clients) POST their metadata to
+  `POST /api/oauth/register` and receive an opaque `client_id` (prefix `mcp-client-`).
+  Spark shows this as "automatic registration" in its Connected Apps UI. No client
+  secret is issued — public/PKCE clients only.
+
+- **Pre-registered / manual clients** (admin-issued tokens, A2A via `a2acli`) obtain
+  a JWT out-of-band via `make token` and pass `--token`. Use `set -a; source .env; set +a`
+  so `JWT_SIGNING_KEY` is inherited by child processes; plain `source .env` only sets a
+  shell variable and the fallback dev key will be rejected by Cloud Run.
 
 ---
 
