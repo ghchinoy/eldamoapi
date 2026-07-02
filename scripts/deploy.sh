@@ -146,6 +146,10 @@ echo "Deploying..."
 # - --service-account binds our dedicated, minimal runner SA
 # - --memory 256Mi and --cpu 1 keep resource footprint very low and cost-efficient
 # - --session-affinity ensures sticky routing to the same container for SSE sessions
+# - --timeout 3600 raises the Cloud Run request timeout from the default 300s to 1 hour.
+#   The Streamable HTTP MCP transport holds long-lived GET /sse streaming connections
+#   open for the duration of an MCP session. Without this, Cloud Run kills them at 5
+#   minutes, forcing clients (e.g. Gemini Spark) to repeatedly drop and reconnect.
 gcloud run deploy "$SERVICE_NAME" \
     --source "$PROJECT_ROOT" \
     --region "$GCP_REGION" \
@@ -156,6 +160,7 @@ gcloud run deploy "$SERVICE_NAME" \
     --allow-unauthenticated \
     --session-affinity \
     --max-instances 1 \
+    --timeout 3600 \
     --set-env-vars "$ENV_VARS"
 
 echo ""
