@@ -337,6 +337,46 @@ func TestIsNameRequest(t *testing.T) {
 	})
 }
 
+// ── TestIsNeologismRequest ────────────────────────────────────────────────────
+
+func TestIsNeologismRequest(t *testing.T) {
+	cases := []struct {
+		text string
+		want bool
+	}{
+		// prefix triggers (original behaviour preserved)
+		{"neologism starlight quenya", true},
+		{"neologism hover-board sindarin", true},
+		{"coin a word for chaos quenya", true},
+		{"invent a sindarin word for starlight", true},
+		// mid-sentence / conversational form (the bug: these were silently
+		// routed to name-generate because IsNeologismRequest used HasPrefix)
+		{"I need a neologism for chaos", true},
+		{"I need a neologism for the word: chaos (n.) - a state of utter confusion or disorder; an utter lack of organization; one for both Quenya and Sindarin", true},
+		{"create a neologism for artificial intelligence", true},
+		{"can you make a neologism for sadness in quenya", true},
+		// should NOT match
+		{"name star silver quenya", false},
+		{"translate farewell to quenya", false},
+		{"Namarie", false},
+		{"hello", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.text[:min(40, len(tc.text))], func(t *testing.T) {
+			got := IsNeologismRequest(msg(tc.text))
+			if got != tc.want {
+				t.Errorf("IsNeologismRequest(%q) = %v, want %v", tc.text, got, tc.want)
+			}
+		})
+	}
+	t.Run("nil", func(t *testing.T) {
+		if IsNeologismRequest(nil) {
+			t.Error("IsNeologismRequest(nil) should be false")
+		}
+	})
+}
+
 // ── TestIsTranslateRequest ────────────────────────────────────────────────────
 
 func TestIsTranslateRequest(t *testing.T) {

@@ -26,7 +26,12 @@ type neologismRequest struct {
 	concept  string
 }
 
-var neologismTriggers = []string{"neologism ", "coin ", "invent "}
+// neologismPrefixes must appear at the start of the message (short action verbs
+// that are ambiguous mid-sentence). neologismKeywords match anywhere — "neologism"
+// is unambiguous and commonly appears mid-sentence in natural prompts like
+// "I need a neologism for...".
+var neologismPrefixes = []string{"coin ", "invent "}
+var neologismKeywords = []string{"neologism"}
 
 // IsNeologismRequest returns true when the message triggers the neologism skill.
 func IsNeologismRequest(msg *a2a.Message) bool {
@@ -39,8 +44,13 @@ func IsNeologismRequest(msg *a2a.Message) bool {
 		b.WriteRune(' ')
 	}
 	text := strings.ToLower(strings.TrimSpace(b.String()))
-	for _, trigger := range neologismTriggers {
-		if strings.HasPrefix(text, trigger) {
+	for _, kw := range neologismKeywords {
+		if strings.Contains(text, kw) {
+			return true
+		}
+	}
+	for _, prefix := range neologismPrefixes {
+		if strings.HasPrefix(text, prefix) {
 			return true
 		}
 	}
@@ -63,9 +73,22 @@ func ParseNeologismRequest(msg *a2a.Message) neologismRequest {
 	}
 	raw := strings.TrimSpace(strings.ToLower(b.String()))
 
-	for _, trigger := range neologismTriggers {
-		if strings.HasPrefix(raw, trigger) {
-			raw = strings.TrimSpace(raw[len(trigger):])
+	// Strip any leading trigger prefix so the remainder is the concept.
+	// Keywords (e.g. "neologism") may appear mid-sentence; strip them and
+	// leading filler so the concept is as clean as possible.
+	for _, kw := range neologismKeywords {
+		if strings.HasPrefix(raw, kw+" ") {
+			raw = strings.TrimSpace(raw[len(kw)+1:])
+			break
+		}
+		if idx := strings.Index(raw, " "+kw+" "); idx >= 0 {
+			raw = strings.TrimSpace(raw[idx+len(kw)+2:])
+			break
+		}
+	}
+	for _, prefix := range neologismPrefixes {
+		if strings.HasPrefix(raw, prefix) {
+			raw = strings.TrimSpace(raw[len(prefix):])
 			break
 		}
 	}
