@@ -161,7 +161,148 @@ Add this to your `claude_desktop_config.json` file:
 }
 ```
 
-### C. A2A Remote Testing (production — candir.mithlond.com)
+## 🌐 Remote MCP Client Configurations (Production — OAuth 2.1)
+
+These configs point at the live production server (`https://candir.mithlond.com`)
+and exercise the full OAuth 2.1 / PKCE flow (CIMD client-id-as-URL and RFC 7591
+DCR), not `AUTH_BYPASS`. Status reflects hands-on testing as of the l04.x/n3l
+epics; update this table as clients change.
+
+| Client | Status | Notes |
+| :--- | :--- | :--- |
+| **opencode** | ✅ Known-good | Daily-driver client for this project; zero known issues. |
+| **Claude Desktop / Claude Code** | ⚠️ Unverified | Config should work per RFC 7591 DCR compliance (`oauth_dcr_test.go`), but no human has completed a live browser-consent handshake with it yet. |
+| **Antigravity Desktop** | ⚠️ Partial | Browser-authorize flow works; a client-side race firing two concurrent `/token` requests on code-paste can produce a spurious `Unauthorized` on the *first* attempt (retry succeeds). Client-side bug, reported upstream. |
+| **Antigravity CLI (`agy`)** | 🔴 Not recommended yet | Reference config only — see known issues below before relying on this for real work. |
+
+### A. opencode Remote Config
+Add this to your workspace `opencode.json` or global `~/.config/opencode/opencode.json`:
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "eldamo-remote": {
+      "type": "remote",
+      "url": "https://candir.mithlond.com/sse",
+      "enabled": true,
+      "oauth": {
+        "clientId": "https://www.mithlond.com/metadata.json",
+        "authorizationUrl": "https://www.mithlond.com/mcp-auth",
+        "tokenUrl": "https://candir.mithlond.com/api/oauth/token"
+      }
+    }
+  }
+}
+```
+
+### B. Claude Desktop / Claude Code Remote Config (unverified)
+Claude's MCP client is expected to self-register via our RFC 7591 Dynamic
+Client Registration endpoint (`registration_endpoint` in the RFC 8414
+discovery document) rather than needing a static `clientId` — so, unlike
+opencode/Antigravity above, no CIMD `clientId` should be required:
+```json
+{
+  "mcpServers": {
+    "eldamo-remote": {
+      "type": "remote",
+      "url": "https://candir.mithlond.com/sse"
+    }
+  }
+}
+```
+> **Status:** Our server-side DCR flow is unit-tested (`oauth_dcr_test.go`),
+> but this config has not yet been exercised end-to-end against a live
+> Claude client. Treat as a starting point, not a confirmed-working recipe,
+> until someone completes the browser-consent handshake and updates this note.
+
+### C. Antigravity Desktop Remote Config (partial)
+```json
+{
+  "mcpServers": {
+    "eldamo-server": {
+      "serverUrl": "https://candir.mithlond.com/sse",
+      "headers": {
+        "X-Mcp-Force-Sse": "true"
+      },
+      "oauth": {
+        "enabled": true,
+        "clientId": "https://www.mithlond.com/metadata.json",
+        "authorizationUrl": "https://www.mithlond.com/mcp-auth",
+        "tokenUrl": "https://candir.mithlond.com/api/oauth/token"
+      }
+    }
+  }
+}
+```
+`X-Mcp-Force-Sse: true` is **our own custom, non-standard header**
+(`main.go`'s `McpMultiplexerHandler`), added specifically to route
+Antigravity Desktop's long-lived `GET /sse` onto the legacy SSE transport,
+which is unaffected by Cloud Run/GFE response buffering on that transport
+(see bd `eldamo-server-1c7`). No other client needs or should send this
+header — see the CLI notes below for why it actively causes problems there.
+
+> **Known issue (client-side):** Antigravity's OAuth-code input handler can
+> fire two concurrent `/api/oauth/token` requests ~35–80ms apart when a code
+> is pasted. If the first (malformed/incomplete) request's `400` arrives
+> before the second (valid) request's `200`, Antigravity surfaces a spurious
+> `Unauthorized` and aborts even though authentication actually succeeded.
+> Reported upstream to the Antigravity team; re-authorizing typically works
+> on retry.
+
+### D. Antigravity CLI (`agy`) Remote Config — reference only, known issues
+This is the config `agy` itself ends up running with (captured from
+`~/.gemini/config/mcp_config.json`); it is **not** a config you should expect
+to hand-edit durably — see the first bullet below.
+
+```json
+{
+  "mcpServers": {
+    "eldamo-server": {
+      "serverUrl": "https://candir.mithlond.com/sse",
+      "oauth": {
+        "clientId": "https://www.mithlond.com/metadata.json"
+      }
+    }
+  }
+}
+```
+(`agy` derives `authorizationUrl`/`tokenUrl` itself via `.well-known`
+discovery rather than trusting config-supplied values — omitting them here is
+expected, not a mistake.)
+
+> **Known issues (all client-side, reported upstream, no server-side
+> workaround exists):**
+> 1. **Config does not persist edits.** `agy` silently rewrites
+>    `~/.gemini/config/mcp_config.json` from its own internal state on every
+>    launch — including re-adding `X-Mcp-Force-Sse: true` (see #3 below) even
+>    after it's manually removed from the file. Edits must go through
+>    Antigravity's GUI "MCP Store → View raw config" panel, if at all.
+> 2. **`no pending auth state for server <name>`** on code paste. Root chain:
+>    code exchange succeeds → the immediate post-auth `initialize` fails (see
+>    #3) → user re-pastes a fresh code → `agy` has already consumed/discarded
+>    its one-shot pending-OAuth-state object and never re-arms one for the
+>    retry.
+> 3. **Simultaneous legacy-SSE + Streamable-HTTP usage → intermittent
+>    `session not found` on `tools/call`.** `agy` persistently sends
+>    `X-Mcp-Force-Sse: true` (see item C above) on `GET /sse`, opening a
+>    session on the legacy SSE handler, while its actual tool-call traffic
+>    (`POST`/`DELETE /sse`) runs over the unrelated Streamable HTTP handler —
+>    two disjoint session tables for one logical connection. No MCP server
+>    can reconcile a client mixing both transports for a single session; `agy`
+>    should not send this header at all, since all of its real traffic already
+>    works correctly over plain Streamable HTTP without it.
+>
+> Two friction reports covering all of the above (with full log evidence and
+> repro steps) have been sent to the Antigravity team. This project's own
+> `main.go`/`oauth.go` were independently hardened during this investigation
+> (GET-only scoping of `X-Mcp-Force-Sse`; full diagnostic logging on every
+> `/api/oauth/token` validation branch) — those were genuine bugs on our side
+> and are already fixed and deployed, but items 1–3 above remain open on the
+> `agy` side.
+
+## 🤖 A2A Protocol Testing
+
+### A. A2A Remote Testing (production — candir.mithlond.com)
 
 The production A2A agent is available at `https://candir.mithlond.com/a2a`
 (`candir` = Sindarin "herald-man", from `cáno` √KAN + `-dîr`).
@@ -179,7 +320,7 @@ a2acli send "name star silver quenya" \
 DNS: `candir.mithlond.com` CNAME → `ghs.googlehosted.com`
 Domain mapping: `gcloud run domain-mappings describe --domain candir.mithlond.com --region us-central1`
 
-### D. A2A Local Testing (a2acli)
+### B. A2A Local Testing (a2acli)
 
 The same binary also serves the A2A protocol at `/a2a` with the AgentCard at
 `/.well-known/agent-card.json`. Test it with

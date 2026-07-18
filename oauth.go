@@ -510,18 +510,27 @@ func handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	
 	// Pre-registration logic: If user not found, check if email is pre-registered
 	if err != nil {
-		// Attempt to find by email
+		// Attempt to find by email with an empty UID (unactivated pre-registration)
 		query := firestoreClient.Collection("authorized_users").Where("email", "==", decodedToken.Claims["email"]).Where("uid", "==", "").Documents(r.Context())
 		doc, qErr := query.Next()
 		if qErr == nil {
-			// Found a pre-registered email, link the UID!
+			// Found a pre-registered email — activate by linking their Firebase UID.
 			if _, uErr := doc.Ref.Update(r.Context(), []firestore.Update{
 				{Path: "uid", Value: decodedToken.UID},
 				{Path: "active", Value: true},
 			}); uErr == nil {
-				// Re-fetch the now-linked user; this resets the outer err on
-				// success so the authorization check below passes.
-				user, err = getUser(r.Context(), decodedToken.UID)
+				// Read the user directly from the existing (email-keyed) document
+				// snapshot rather than calling getUser(uid), which would look up a
+				// UID-keyed document that was never created.
+				var activated User
+				if dErr := doc.DataTo(&activated); dErr == nil {
+					activated.UID = decodedToken.UID
+					activated.Active = true
+					user, err = &activated, nil
+					log.Printf("[OAuth] Pre-registered user '%s' (%s) activated on first login", decodedToken.UID, activated.Email)
+				}
+			} else {
+				log.Printf("[OAuth] Failed to activate pre-registered user '%s': %v", decodedToken.Claims["email"], uErr)
 			}
 		}
 	}
@@ -710,7 +719,15 @@ func handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 
 	switch grantType {
 	case "authorization_code":
+		// codeTail is a short, non-sensitive suffix used to correlate log lines for a
+		// single code across requests without printing the whole (one-time-use) code.
+		codeTail := code
+		if len(codeTail) > 8 {
+			codeTail = codeTail[len(codeTail)-8:]
+		}
+
 		if code == "" || clientID == "" {
+			log.Printf("[OAuth][token] invalid_request: missing required params (code_empty=%v client_id_empty=%v) client_id=%q", code == "", clientID == "", clientID)
 			oauthError(http.StatusBadRequest, "invalid_request", "Missing required parameters (code, client_id)")
 			return
 		}
@@ -719,6 +736,7 @@ func handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		docRef := firestoreClient.Collection("mcp_auth_codes").Doc(code)
 		docSnap, err := docRef.Get(r.Context())
 		if err != nil {
+			log.Printf("[OAuth][token] invalid_grant: authorization code not found (already used, wrong, or expired-and-TTL'd) code=...%s client_id=%q: %v", codeTail, clientID, err)
 			oauthError(http.StatusBadRequest, "invalid_grant", "Invalid or expired authorization code")
 			return
 		}
@@ -731,6 +749,7 @@ func handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		// 2. Verify expiration
 		expiresAt, ok := data["expires_at"].(time.Time)
 		if !ok || time.Now().After(expiresAt) {
+			log.Printf("[OAuth][token] invalid_grant: authorization code expired code=...%s client_id=%q expiresAt=%v now=%v", codeTail, clientID, expiresAt, time.Now())
 			oauthError(http.StatusBadRequest, "invalid_grant", "Authorization code has expired")
 			return
 		}
@@ -738,12 +757,14 @@ func handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		// 3. Verify client_id and redirect_uri parameters match
 		storedClientID, _ := data["client_id"].(string)
 		if storedClientID != clientID {
+			log.Printf("[OAuth][token] invalid_grant: client_id mismatch code=...%s stored=%q request=%q", codeTail, storedClientID, clientID)
 			oauthError(http.StatusBadRequest, "invalid_grant", "Client ID mismatch")
 			return
 		}
 
 		storedRedirectURI, _ := data["redirect_uri"].(string)
 		if storedRedirectURI != "" && storedRedirectURI != redirectURI {
+			log.Printf("[OAuth][token] invalid_grant: redirect_uri mismatch code=...%s client_id=%q stored=%q request=%q", codeTail, clientID, storedRedirectURI, redirectURI)
 			oauthError(http.StatusBadRequest, "invalid_grant", "Redirect URI mismatch")
 			return
 		}
@@ -752,6 +773,7 @@ func handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		storedChallenge, _ := data["code_challenge"].(string)
 		if storedChallenge != "" {
 			if codeVerifier == "" {
+				log.Printf("[OAuth][token] invalid_request: missing PKCE code_verifier code=...%s client_id=%q (code_challenge was set at authorize time)", codeTail, clientID)
 				oauthError(http.StatusBadRequest, "invalid_request", "Missing PKCE code_verifier")
 				return
 			}
@@ -759,6 +781,7 @@ func handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 			hash := sha256.Sum256([]byte(codeVerifier))
 			computedChallenge := base64.RawURLEncoding.EncodeToString(hash[:])
 			if computedChallenge != storedChallenge {
+				log.Printf("[OAuth][token] invalid_grant: PKCE verifier mismatch code=...%s client_id=%q stored_challenge=%q computed_challenge=%q verifier_len=%d", codeTail, clientID, storedChallenge, computedChallenge, len(codeVerifier))
 				oauthError(http.StatusBadRequest, "invalid_grant", "Invalid PKCE code_verifier")
 				return
 			}
@@ -769,9 +792,12 @@ func handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		// Re-fetch user to get latest scopes/roles
 		user, err := getUser(r.Context(), userUID)
 		if err != nil || !user.Active {
+			log.Printf("[OAuth][token] invalid_grant: user not authorized or inactive code=...%s user_uid=%q err=%v", codeTail, userUID, err)
 			oauthError(http.StatusForbidden, "invalid_grant", "User not authorized or inactive")
 			return
 		}
+
+		log.Printf("[OAuth][token] authorization_code exchange succeeded code=...%s client_id=%q user_uid=%q", codeTail, clientID, userUID)
 
 		// 5. Generate Access Token & Refresh Token (JWTs)
 		accessToken, err := generateJWT(user, clientID, issuer, 1*time.Hour, "access")
@@ -857,6 +883,7 @@ func handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		return
 
 	default:
+		log.Printf("[OAuth][token] unsupported_grant_type: %q client_id=%q content_type=%q", grantType, clientID, contentType)
 		oauthError(http.StatusBadRequest, "unsupported_grant_type", "Supported grant types are 'authorization_code' and 'refresh_token'")
 	}
 }

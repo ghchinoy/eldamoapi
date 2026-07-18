@@ -218,6 +218,54 @@ func TestMcpMultiplexerRouting(t *testing.T) {
 	if sseCalled || !streamableCalled {
 		t.Errorf("Expected request with Mcp-Session-Id header to route to StreamableHTTPHandler")
 	}
+
+	// Case 6: X-Mcp-Force-Sse on GET routes to SSEHandler (the header's intended use:
+	// forcing the long-lived streaming connection off Cloud Run/GFE buffering).
+	resetCalls()
+	req = httptest.NewRequest("GET", "/sse", nil)
+	req.Header.Set("X-Mcp-Force-Sse", "true")
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if !sseCalled || streamableCalled {
+		t.Errorf("Expected GET /sse with X-Mcp-Force-Sse to route to SSEHandler")
+	}
+
+	// Case 7: X-Mcp-Force-Sse on a bare POST (Streamable-HTTP "initialize" handshake,
+	// no prior GET/session) must NOT be forced onto SSEHandler — the legacy SSE
+	// handler requires a session established by a prior GET and would 400 this
+	// request. Regression test for the "sending initialize: Bad Request" bug hit by
+	// Streamable-HTTP-only clients (e.g. Antigravity CLI/agy) that attach this header
+	// unconditionally to every request.
+	resetCalls()
+	req = httptest.NewRequest("POST", "/sse", nil)
+	req.Header.Set("X-Mcp-Force-Sse", "true")
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if sseCalled || !streamableCalled {
+		t.Errorf("Expected POST /sse with X-Mcp-Force-Sse (no session) to route to StreamableHTTPHandler")
+	}
+
+	// Case 8: X-Mcp-Force-Sse on DELETE must also fall through to StreamableHTTPHandler.
+	resetCalls()
+	req = httptest.NewRequest("DELETE", "/sse", nil)
+	req.Header.Set("X-Mcp-Force-Sse", "true")
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if sseCalled || !streamableCalled {
+		t.Errorf("Expected DELETE /sse with X-Mcp-Force-Sse to route to StreamableHTTPHandler")
+	}
+
+	// Case 9: X-Mcp-Force-Sse on a legacy-SSE POST (with sessionid) should still work
+	// exactly as an unadorned legacy request would (SSEHandler), i.e. the header is a
+	// no-op here rather than a behavior change.
+	resetCalls()
+	req = httptest.NewRequest("POST", "/sse?sessionid=123", nil)
+	req.Header.Set("X-Mcp-Force-Sse", "true")
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if !sseCalled || streamableCalled {
+		t.Errorf("Expected POST /sse?sessionid=123 with X-Mcp-Force-Sse to route to SSEHandler")
+	}
 }
 
 // TestRootPathMountedForBaseURLProbes verifies the MCP transport is reachable at

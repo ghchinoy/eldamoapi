@@ -314,8 +314,19 @@ func NewMcpMultiplexerHandler(getServer func(*http.Request) *mcp.Server) *McpMul
 }
 
 func (h *McpMultiplexerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Support selective SSE transport override (e.g. for Antigravity on Cloud Run / GFE buffering)
-	if strings.ToLower(r.Header.Get("X-Mcp-Force-Sse")) == "true" {
+	// Support selective SSE transport override (e.g. for Antigravity Desktop on Cloud
+	// Run / GFE buffering). Restricted to GET: the override exists solely to force the
+	// long-lived streaming connection onto the legacy SSE handler, which is what
+	// actually suffers from GFE response buffering. POST/DELETE must always fall
+	// through to the session-based auto-detection below, regardless of this header.
+	//
+	// Some Streamable-HTTP-only clients (e.g. opencode, Antigravity CLI/agy) send this
+	// header on every request — including their very first "initialize" call, a bare
+	// POST with no prior GET and no session established. The legacy SSE handler
+	// requires a session created by a prior GET, so blindly honoring this header for
+	// POST incorrectly 400s that handshake ("sending initialize: Bad Request") even
+	// though the client never intended to speak the legacy SSE transport at all.
+	if r.Method == http.MethodGet && strings.ToLower(r.Header.Get("X-Mcp-Force-Sse")) == "true" {
 		log.Printf("[Multiplexer] SSE force-override header detected. Routing strictly to SSEHandler: %s %s", r.Method, r.URL.RequestURI())
 		h.sseHandler.ServeHTTP(w, r)
 		return
