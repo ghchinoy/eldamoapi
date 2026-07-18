@@ -28,3 +28,6 @@ opencode.json
 
 # Compiled admin CLI binary
 cmd/eldamo-admin/eldamo-admin
+
+# Beads / Dolt files (added by bd init)
+.beads/proxieddb/
