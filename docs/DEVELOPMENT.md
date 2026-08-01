@@ -471,8 +471,8 @@ We use [GoReleaser](https://goreleaser.com/) to automate the creation of platfor
 #### How to Release
 1.  **Tag the release:**
     ```bash
-    git tag -a v0.1.6 -m "Release v0.1.6"
-    git push origin v0.1.6
+    git tag -a v0.2.0 -m "Release v0.2.0"
+    git push origin v0.2.0
     ```
 2.  The GitHub Action (`.github/workflows/release.yml`) will automatically detect the tag, build the binaries, create a GitHub Release, and upload the artifacts.
 

@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "eldamo-elvish-lexicon",
-  "version": "0.6.0",
+  "version": "0.2.0",
   "description": "Tolkien Elvish lexicon MCP tools and linguistic agent skills over Paul Strack's Eldamo compilation",
   "author": {
     "name": "G. H. Chinoy",

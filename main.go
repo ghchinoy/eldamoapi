@@ -497,7 +497,7 @@ func handleProtectedResourceMetadata(w http.ResponseWriter, r *http.Request) {
 func createMCPServer() *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "eldamo-mcp-server",
-		Version: "0.6.0",
+		Version: "0.2.0",
 	}, &mcp.ServerOptions{
 		KeepAlive: 30 * time.Second,
 	})

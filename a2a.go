@@ -296,7 +296,7 @@ var allScopes = map[string]string{
 	"skill:neologism":     "Use the Elvish neologism-builder skill",
 }
 
-const agentCardVersion = "0.6.0"
+const agentCardVersion = "0.2.0"
 
 // buildAgentCard constructs the public AgentCard for the given absolute base URL
 // (e.g. "https://host"). The JSON-RPC interface URL and the OAuth token endpoint
