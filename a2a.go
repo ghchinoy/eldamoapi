@@ -296,6 +296,8 @@ var allScopes = map[string]string{
 	"skill:neologism":     "Use the Elvish neologism-builder skill",
 }
 
+const agentCardVersion = "0.6.0"
+
 // buildAgentCard constructs the public AgentCard for the given absolute base URL
 // (e.g. "https://host"). The JSON-RPC interface URL and the OAuth token endpoint
 // are both derived from the base URL; the authorize endpoint lives on the
@@ -304,7 +306,7 @@ func buildAgentCard(baseURL string) *a2a.AgentCard {
 	return &a2a.AgentCard{
 		Name:        "Eldamo Elvish Agent",
 		Description: "Agentic access to Paul Strack's Eldamo Tolkien-language lexicon. Skills: Quenya/Sindarin name generation (deterministic, lexicon-grounded), morphologically-guided translation (LLM-backed, streaming), and dual-path neologism construction with phonotactic scoring (LLM-backed, two artifacts).",
-		Version:     "0.5.1",
+		Version:     agentCardVersion,
 		SupportedInterfaces: []*a2a.AgentInterface{
 			a2a.NewAgentInterface(baseURL+a2aBasePath, a2a.TransportProtocolJSONRPC),
 		},
@@ -420,7 +422,7 @@ func buildExtendedAgentCard(baseURL string) *a2a.AgentCard {
 	return &a2a.AgentCard{
 		Name:        "Eldamo Elvish Agent",
 		Description: "Agentic access to Paul Strack's Eldamo Tolkien-language lexicon. Skills: Quenya/Sindarin name generation (deterministic, lexicon-grounded), morphologically-guided translation (LLM-backed, streaming), and dual-path neologism construction with phonotactic scoring (LLM-backed, two artifacts).",
-		Version:     "0.5.1",
+		Version:     agentCardVersion,
 		Provider: &a2a.AgentProvider{
 			Org: "Mithlond",
 			URL: "https://www.mithlond.com",
