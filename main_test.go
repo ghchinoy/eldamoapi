@@ -24,27 +24,8 @@ func TestIntegrationServer(t *testing.T) {
 		t.Fatalf("Failed to initialize search index: %v", err)
 	}
 
-	// Create MCP server
-	server := mcp.NewServer(&mcp.Implementation{
-		Name:    "test-eldamo-mcp-server",
-		Version: "1.0.0",
-	}, nil)
-
-	// Register tools
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "enquire_lexicon",
-		Description: "Search the Eldamo Tolkien lexicon.",
-	}, enquireLexiconHandler)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "get_word_details",
-		Description: "Fetch complete details for a specific Eldamo entry.",
-	}, getWordDetailsHandler)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "get_derivations",
-		Description: "Retrieve derivation history.",
-	}, getDerivationsHandler)
+	// Create MCP server via shared initializer
+	server := createMCPServer()
 
 	// Setup multiplexed handler
 	handler := NewMcpMultiplexerHandler(func(*http.Request) *mcp.Server { return server })
@@ -73,7 +54,27 @@ func TestIntegrationServer(t *testing.T) {
 		_ = cs.Close()
 	}()
 
-	// 3. Test 'enquire_lexicon' tool
+	// 1. Test ListTools metadata (Titles, Annotations, OutputSchema)
+	toolsResult, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("Failed to list tools: %v", err)
+	}
+	if len(toolsResult.Tools) < 4 {
+		t.Errorf("Expected at least 4 tools, got %d", len(toolsResult.Tools))
+	}
+	for _, tool := range toolsResult.Tools {
+		if tool.Title == "" {
+			t.Errorf("Tool '%s' missing Title", tool.Name)
+		}
+		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
+			t.Errorf("Tool '%s' expected ReadOnlyHint = true", tool.Name)
+		}
+		if tool.Name != "render_elvish_audio" && tool.OutputSchema == nil {
+			t.Errorf("Read tool '%s' expected non-nil OutputSchema", tool.Name)
+		}
+	}
+
+	// 2. Test 'enquire_lexicon' tool (dual-emit: text + structured content)
 	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "enquire_lexicon",
 		Arguments: map[string]any{"query": "star"},
@@ -87,6 +88,48 @@ func TestIntegrationServer(t *testing.T) {
 	textResult := res.Content[0].(*mcp.TextContent).Text
 	if !strings.Contains(textResult, "Found") {
 		t.Errorf("Expected response text to contain 'Found', got: %s", textResult)
+	}
+	if res.StructuredContent == nil {
+		t.Error("Expected dual-emit StructuredContent, got nil")
+	}
+
+	// 3. Test Prompts (ListPrompts & GetPrompt)
+	promptsResult, err := cs.ListPrompts(ctx, nil)
+	if err != nil {
+		t.Fatalf("Failed to list prompts: %v", err)
+	}
+	if len(promptsResult.Prompts) != 3 {
+		t.Errorf("Expected 3 prompts, got %d", len(promptsResult.Prompts))
+	}
+	getPromptRes, err := cs.GetPrompt(ctx, &mcp.GetPromptParams{
+		Name:      "tolkien-translation",
+		Arguments: map[string]string{"text": "namarie"},
+	})
+	if err != nil {
+		t.Fatalf("Failed to get prompt 'tolkien-translation': %v", err)
+	}
+	if len(getPromptRes.Messages) == 0 {
+		t.Fatal("Expected prompt message content, got empty")
+	}
+	promptText := getPromptRes.Messages[0].Content.(*mcp.TextContent).Text
+	if !strings.Contains(promptText, "Text to translate: namarie") {
+		t.Errorf("Expected prompt text to contain input text, got: %s", promptText)
+	}
+
+	// 4. Test Resources (ListResources & ReadResource)
+	resourcesResult, err := cs.ListResources(ctx, nil)
+	if err != nil {
+		t.Fatalf("Failed to list resources: %v", err)
+	}
+	if len(resourcesResult.Resources) != 2 {
+		t.Errorf("Expected 2 resources, got %d", len(resourcesResult.Resources))
+	}
+	readCardRes, err := cs.ReadResource(ctx, &mcp.ReadResourceParams{URI: "eldamo://agent-card"})
+	if err != nil {
+		t.Fatalf("Failed to read resource 'eldamo://agent-card': %v", err)
+	}
+	if len(readCardRes.Contents) == 0 || readCardRes.Contents[0].Text == "" {
+		t.Error("Expected non-empty resource content for agent-card")
 	}
 
 	// 4. Test 'enquire_lexicon' with no results

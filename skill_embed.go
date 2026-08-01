@@ -17,3 +17,6 @@ var translateSkillMD string
 
 //go:embed skills/neologism-builder/SKILL.md
 var neologismSkillMD string
+
+//go:embed skills/tolkien-name-generator/SKILL.md
+var nameGenSkillMD string

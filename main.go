@@ -45,6 +45,29 @@ type RenderElvishAudioArgs struct {
 	Speed float64 `json:"speed,omitempty" jsonschema:"Optional speed, default 0.8."`
 }
 
+type EnquireLexiconResult struct {
+	Total   int               `json:"total"`
+	Count   int               `json:"count"`
+	Matches []*index.FlatWord `json:"matches"`
+}
+
+type GetWordDetailsResult struct {
+	Word *index.FlatWord `json:"word"`
+}
+
+type GetDerivationsResult struct {
+	ID        string            `json:"id"`
+	Direction string            `json:"direction"`
+	Count     int               `json:"count"`
+	Results   []*index.FlatWord `json:"results"`
+}
+
+type GetRootAnchorsResult struct {
+	ID      string            `json:"id"`
+	Count   int               `json:"count"`
+	Anchors []*index.FlatWord `json:"anchors"`
+}
+
 func renderElvishAudioHandler(ctx context.Context, req *mcp.CallToolRequest, args RenderElvishAudioArgs) (*mcp.CallToolResult, any, error) {
 	ttsURL := os.Getenv("ELVISH_TTS_URL")
 	if ttsURL == "" {
@@ -98,7 +121,7 @@ func renderElvishAudioHandler(ctx context.Context, req *mcp.CallToolRequest, arg
 	}, nil, nil
 }
 
-func enquireLexiconHandler(ctx context.Context, req *mcp.CallToolRequest, args EnquireLexiconArgs) (*mcp.CallToolResult, any, error) {
+func enquireLexiconHandler(ctx context.Context, req *mcp.CallToolRequest, args EnquireLexiconArgs) (*mcp.CallToolResult, *EnquireLexiconResult, error) {
 	query := strings.TrimSpace(args.Query)
 	
 	var filters []string
@@ -169,14 +192,19 @@ func enquireLexiconHandler(ctx context.Context, req *mcp.CallToolRequest, args E
 
 	log.Printf("[Tool Result] enquire_lexicon: found %d matches (returned top %d) for query='%s'", len(combined), limit, query)
 	msg := fmt.Sprintf("Found %d matches (showing top %d):\n\n```json\n%s\n```", len(combined), limit, string(resBytes))
+	out := &EnquireLexiconResult{
+		Total:   len(combined),
+		Count:   limit,
+		Matches: results,
+	}
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: msg},
 		},
-	}, nil, nil
+	}, out, nil
 }
 
-func getWordDetailsHandler(ctx context.Context, req *mcp.CallToolRequest, args GetWordDetailsArgs) (*mcp.CallToolResult, any, error) {
+func getWordDetailsHandler(ctx context.Context, req *mcp.CallToolRequest, args GetWordDetailsArgs) (*mcp.CallToolResult, *GetWordDetailsResult, error) {
 	id := strings.TrimSpace(args.ID)
 	log.Printf("[Tool Call] get_word_details: id='%s'", id)
 	if id == "" {
@@ -205,14 +233,15 @@ func getWordDetailsHandler(ctx context.Context, req *mcp.CallToolRequest, args G
 
 	log.Printf("[Tool Result] get_word_details: found details for word ID '%s'", id)
 	msg := fmt.Sprintf("Details for word ID '%s':\n\n```json\n%s\n```", id, string(resBytes))
+	out := &GetWordDetailsResult{Word: word}
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: msg},
 		},
-	}, nil, nil
+	}, out, nil
 }
 
-func getDerivationsHandler(ctx context.Context, req *mcp.CallToolRequest, args GetDerivationsArgs) (*mcp.CallToolResult, any, error) {
+func getDerivationsHandler(ctx context.Context, req *mcp.CallToolRequest, args GetDerivationsArgs) (*mcp.CallToolResult, *GetDerivationsResult, error) {
 	id := strings.TrimSpace(args.ID)
 	log.Printf("[Tool Call] get_derivations: id='%s', direction='%s'", id, args.Direction)
 	if id == "" {
@@ -246,14 +275,20 @@ func getDerivationsHandler(ctx context.Context, req *mcp.CallToolRequest, args G
 
 	log.Printf("[Tool Result] get_derivations: found %d %s for word ID '%s'", len(derivs), dir, id)
 	msg := fmt.Sprintf("Found %d %s for word ID '%s':\n\n```json\n%s\n```", len(derivs), dir, id, string(resBytes))
+	out := &GetDerivationsResult{
+		ID:        id,
+		Direction: dir,
+		Count:     len(derivs),
+		Results:   derivs,
+	}
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: msg},
 		},
-	}, nil, nil
+	}, out, nil
 }
 
-func getRootAnchorsHandler(ctx context.Context, req *mcp.CallToolRequest, args GetRootAnchorsArgs) (*mcp.CallToolResult, any, error) {
+func getRootAnchorsHandler(ctx context.Context, req *mcp.CallToolRequest, args GetRootAnchorsArgs) (*mcp.CallToolResult, *GetRootAnchorsResult, error) {
 	id := strings.TrimSpace(args.ID)
 	log.Printf("[Tool Call] get_root_anchors: id='%s'", id)
 	if id == "" {
@@ -282,11 +317,16 @@ func getRootAnchorsHandler(ctx context.Context, req *mcp.CallToolRequest, args G
 
 	log.Printf("[Tool Result] get_root_anchors: found %d anchors for word ID '%s'", len(anchors), id)
 	msg := fmt.Sprintf("Found %d character/place name anchors derived from ID '%s':\n\n```json\n%s\n```", len(anchors), id, string(resBytes))
+	out := &GetRootAnchorsResult{
+		ID:      id,
+		Count:   len(anchors),
+		Anchors: anchors,
+	}
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: msg},
 		},
-	}, nil, nil
+	}, out, nil
 }
 
 func sseLoggingMiddleware(next http.Handler) http.Handler {
@@ -379,6 +419,7 @@ func handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
 		"authorization_endpoint":                "https://www.mithlond.com/mcp-auth",
 		"token_endpoint":                        fmt.Sprintf("%s/api/oauth/token", baseURL),
 		"registration_endpoint":                 fmt.Sprintf("%s/api/oauth/register", baseURL),
+		"service_documentation":                 "https://github.com/ghchinoy/eldamoapi",
 		"client_id_metadata_document_supported": true,
 		"response_types_supported":              []string{"code"},
 		"grant_types_supported":                 []string{"authorization_code"},
@@ -451,6 +492,202 @@ func handleProtectedResourceMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// createMCPServer instantiates and configures the MCP server with all tools,
+// prompts, and resources.
+func createMCPServer() *mcp.Server {
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "eldamo-mcp-server",
+		Version: "1.0.0",
+	}, &mcp.ServerOptions{
+		KeepAlive: 30 * time.Second,
+	})
+
+	// Register tools using type-safe AddTool helper
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "enquire_lexicon",
+		Title:       "Search Lexicon",
+		Description: "Search the Eldamo Tolkien lexicon. Combines prefix spelling search and full-text keyword search across words, glosses, and notes. Results are capped at 50.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, enquireLexiconHandler)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_word_details",
+		Title:       "Word Details",
+		Description: "Fetch complete details for a specific Eldamo entry by its unique page ID.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, getWordDetailsHandler)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_derivations",
+		Title:       "Derivation Tree",
+		Description: "Retrieve derivation history (ancestors or descendants) of a word by its unique page ID.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, getDerivationsHandler)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_root_anchors",
+		Title:       "Root Anchors",
+		Description: "Retrieve proper names (characters, places, etc.) recursively derived from a specific root or base word ID.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, getRootAnchorsHandler)
+
+	if os.Getenv("ELVISH_TTS_URL") != "" {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "render_elvish_audio",
+			Title:       "Pronounce Elvish",
+			Description: "Synthesizes pronunciation for Elvish words or phrases using Kokoro-based TTS.",
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		}, renderElvishAudioHandler)
+	}
+
+	// --- MCP Prompts ---
+	// Register the 3 linguistic workflow prompts so any MCP client can invoke them.
+	server.AddPrompt(&mcp.Prompt{
+		Name:        "tolkien-translation",
+		Title:       "Tolkien Elvish Translation",
+		Description: "Translates English text into Quenya or Sindarin, applying morphology, case endings, and consonant mutations.",
+		Arguments: []*mcp.PromptArgument{
+			{Name: "text", Title: "Text to Translate", Description: "English text or phrase to translate", Required: true},
+			{Name: "language", Title: "Target Language", Description: "Optional language filter ('q' for Quenya, 's' for Sindarin)"},
+		},
+	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		text := req.Params.Arguments["text"]
+		lang := req.Params.Arguments["language"]
+		promptText := translateSkillMD
+		if lang != "" {
+			promptText += fmt.Sprintf("\n\nTarget Language: %s", lang)
+		}
+		if text != "" {
+			promptText += fmt.Sprintf("\n\nText to translate: %s", text)
+		}
+		return &mcp.GetPromptResult{
+			Description: "Tolkien Elvish Translation Workflow Prompt",
+			Messages: []*mcp.PromptMessage{
+				{
+					Role:    "user",
+					Content: &mcp.TextContent{Text: promptText},
+				},
+			},
+		}, nil
+	})
+
+	server.AddPrompt(&mcp.Prompt{
+		Name:        "tolkien-name-generator",
+		Title:       "Tolkien Elvish Name Generator",
+		Description: "Generates grammatically correct, historically authentic Tolkien Elvish names for characters, places, stars, or weapons.",
+		Arguments: []*mcp.PromptArgument{
+			{Name: "concepts", Title: "Name Concepts", Description: "Keywords or concepts for the name (e.g., 'star silver')", Required: true},
+			{Name: "language", Title: "Language", Description: "Optional language ('quenya' or 'sindarin')"},
+			{Name: "gender", Title: "Gender/Type", Description: "Optional gender or category (masculine, feminine, place, celestial)"},
+		},
+	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		concepts := req.Params.Arguments["concepts"]
+		lang := req.Params.Arguments["language"]
+		gender := req.Params.Arguments["gender"]
+		promptText := nameGenSkillMD
+		if concepts != "" {
+			promptText += fmt.Sprintf("\n\nName concept / request: %s", concepts)
+		}
+		if lang != "" {
+			promptText += fmt.Sprintf(" (Language: %s)", lang)
+		}
+		if gender != "" {
+			promptText += fmt.Sprintf(" (Gender/Type: %s)", gender)
+		}
+		return &mcp.GetPromptResult{
+			Description: "Tolkien Elvish Name Generator Workflow Prompt",
+			Messages: []*mcp.PromptMessage{
+				{
+					Role:    "user",
+					Content: &mcp.TextContent{Text: promptText},
+				},
+			},
+		}, nil
+	})
+
+	server.AddPrompt(&mcp.Prompt{
+		Name:        "neologism-builder",
+		Title:       "Elvish Neologism Builder",
+		Description: "Guides the creation of Neo-Elvish vocabulary using two stylistic paths, the Anchorage Protocol, and a 100-point scoring matrix.",
+		Arguments: []*mcp.PromptArgument{
+			{Name: "concept", Title: "Concept to Coin", Description: "The modern concept or term to construct an Elvish word for (e.g., 'hover-board')", Required: true},
+			{Name: "language", Title: "Language", Description: "Optional target language ('quenya' or 'sindarin')"},
+		},
+	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		concept := req.Params.Arguments["concept"]
+		lang := req.Params.Arguments["language"]
+		promptText := neologismSkillMD
+		if concept != "" {
+			promptText += fmt.Sprintf("\n\nConcept to coin: %s", concept)
+		}
+		if lang != "" {
+			promptText += fmt.Sprintf(" (Language: %s)", lang)
+		}
+		return &mcp.GetPromptResult{
+			Description: "Elvish Neologism Builder Workflow Prompt",
+			Messages: []*mcp.PromptMessage{
+				{
+					Role:    "user",
+					Content: &mcp.TextContent{Text: promptText},
+				},
+			},
+		}, nil
+	})
+
+	// --- MCP Resources ---
+	// Expose AgentCard and lexicon statistics as read-only MCP resources.
+	server.AddResource(&mcp.Resource{
+		URI:         "eldamo://agent-card",
+		Name:        "AgentCard",
+		Title:       "Eldamo AgentCard",
+		Description: "Public AgentCard JSON describing agent capabilities and skills.",
+		MIMEType:    "application/json",
+	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		card := buildExtendedAgentCard("https://candir.mithlond.com")
+		data, err := json.MarshalIndent(card, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal AgentCard resource: %w", err)
+		}
+		return &mcp.ReadResourceResult{
+			Contents: []*mcp.ResourceContents{
+				{
+					URI:      "eldamo://agent-card",
+					MIMEType: "application/json",
+					Text:     string(data),
+				},
+			},
+		}, nil
+	})
+
+	server.AddResource(&mcp.Resource{
+		URI:         "eldamo://lexicon/stats",
+		Name:        "LexiconStats",
+		Title:       "Lexicon Statistics",
+		Description: "Summary statistics for the loaded Eldamo in-memory lexicon database.",
+		MIMEType:    "application/json",
+	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		stats := map[string]any{
+			"total_words": len(lexiconIndex.Words),
+			"keywords":    len(lexiconIndex.InvertedMap),
+		}
+		data, err := json.MarshalIndent(stats, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal lexicon stats resource: %w", err)
+		}
+		return &mcp.ReadResourceResult{
+			Contents: []*mcp.ResourceContents{
+				{
+					URI:      "eldamo://lexicon/stats",
+					MIMEType: "application/json",
+					Text:     string(data),
+				},
+			},
+		}, nil
+	})
+
+	return server
+}
+
 func main() {
 	log.Println("Initializing Firebase and Firestore clients...")
 	initFirebase()
@@ -466,46 +703,7 @@ func main() {
 	}
 	log.Printf("Successfully loaded search index with %d words.", len(lexiconIndex.Words))
 
-	// Instantiate the MCP server. KeepAlive sends a ping to the client every
-	// 30 seconds via the open GET /sse streaming channel. This prevents the
-	// channel going idle — which causes Spark's OpenAuth library to close and
-	// reopen it, producing 409 Conflict when the SDK still holds the old slot.
-	// If the client stops responding to pings the SDK closes the session
-	// cleanly, letting the client reconnect fresh rather than getting stuck.
-	server := mcp.NewServer(&mcp.Implementation{
-		Name:    "eldamo-mcp-server",
-		Version: "1.0.0",
-	}, &mcp.ServerOptions{
-		KeepAlive: 30 * time.Second,
-	})
-
-	// Register tools using type-safe AddTool helper
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "enquire_lexicon",
-		Description: "Search the Eldamo Tolkien lexicon. Combines prefix spelling search and full-text keyword search across words, glosses, and notes. Results are capped at 50.",
-	}, enquireLexiconHandler)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "get_word_details",
-		Description: "Fetch complete details for a specific Eldamo entry by its unique page ID.",
-	}, getWordDetailsHandler)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "get_derivations",
-		Description: "Retrieve derivation history (ancestors or descendants) of a word by its unique page ID.",
-	}, getDerivationsHandler)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "get_root_anchors",
-		Description: "Retrieve proper names (characters, places, etc.) recursively derived from a specific root or base word ID.",
-	}, getRootAnchorsHandler)
-
-	if os.Getenv("ELVISH_TTS_URL") != "" {
-		mcp.AddTool(server, &mcp.Tool{
-			Name:        "render_elvish_audio",
-			Description: "Synthesizes pronunciation for Elvish words or phrases using Kokoro-based TTS.",
-		}, renderElvishAudioHandler)
-	}
+	server := createMCPServer()
 
 	// Create multiplexed handler to support both SSE and Streamable HTTP transports
 	handler := NewMcpMultiplexerHandler(func(*http.Request) *mcp.Server { return server })

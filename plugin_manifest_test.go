@@ -244,4 +244,7 @@ func TestEmbeddedSkills_NonEmpty(t *testing.T) {
 	if neologismSkillMD == "" {
 		t.Error("Embedded neologismSkillMD is empty")
 	}
+	if nameGenSkillMD == "" {
+		t.Error("Embedded nameGenSkillMD is empty")
+	}
 }
