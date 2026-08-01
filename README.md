@@ -108,6 +108,12 @@ This repository bundles specialized linguistic agent skills within the `skills/`
 ### 3. `tolkien-translation`
 * **TL;DR:** Translates English phrases into Tolkien's main languages (Quenya, Sindarin, and Adûnaic). Analyzes sentence grammar, verb conjugations, adjective agreements, and case morphology, ensuring appropriate historical dialect selection.
 
+### 🧩 Agent Plugins Specification v1.0.0
+This repository is packaged as a conformant **[Agent Plugin](https://agent-plugins.org)**:
+- **`plugin.json`**: Root manifest declaring metadata, capabilities, and schema (`https://agent-plugins.org/schemas/1.0.0/plugin.schema.json`).
+- **`mcp.json`**: MCP configuration declaring the remote Streamable HTTP endpoint (`https://candir.mithlond.com/sse`).
+- **`skills/`**: Standard directory containing `SKILL.md` workflow documents conforming to [Agent Skills](https://agentskills.io).
+
 
 ## 💾 One-Line Installation (Prebuilt Binary)
 
@@ -169,7 +175,7 @@ Create an **`opencode.json`** file in the root of your local workspace directory
 {
   "$schema": "https://opencode.ai/config.json",
   "skills": {
-    "paths": ["agent-skills"]
+    "paths": ["skills"]
   },
   "mcp": {
     "eldamo-remote": {
@@ -187,7 +193,7 @@ Create an **`opencode.json`** file in the root of your local workspace directory
 ```
 
 > [!TIP]
-> The `"skills": { "paths": ["agent-skills"] }` block is **essential** to enable OpenCode to discover and load the bundle of **Linguistic Agent Skills** (like the `neologism-builder`) included in the project directory.
+> The `"skills": { "paths": ["skills"] }` block is **essential** to enable OpenCode to discover and load the bundle of **Linguistic Agent Skills** (like the `neologism-builder`) included in the project directory.
 
 #### Global Config (Universal)
 Add the server block to your global configuration file at **`~/.config/opencode/opencode.json`**:

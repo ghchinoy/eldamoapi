@@ -101,6 +101,7 @@ They complement (do not duplicate) the deep docs in `docs/`
   unauthenticated; the endpoints they advertise are JWT-gated. Derive
   `scheme://host` for absolute URLs from the request (honor `X-Forwarded-Host`)
   as in `handleOAuthDiscovery` / `requestBaseURL`.
+* **Agent Plugins Spec v1.0.0 compliance.** The repository root is a conformant Agent Plugin package (`plugin.json`, `mcp.json`). The `skills/` directory contains markdown Agent Skill workflow documents (`SKILL.md` following `agentskills.io`), while Go A2A skill executors live in `internal/skills/`. Note: Agent Plugins spec package layout is distinct from OpenCode's JavaScript `.opencode/plugins/` runtime hooks.
 
 ### Local dev & verification gotchas
 * **Port 8080 is often occupied.** Run on an alternate port
