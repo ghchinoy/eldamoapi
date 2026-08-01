@@ -138,6 +138,9 @@ Add this to your local workspace `opencode.json` or global `~/.config/opencode/o
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
+  "skills": {
+    "paths": ["skills"]
+  },
   "mcp": {
     "eldamo-local": {
       "type": "remote",
@@ -180,6 +183,9 @@ Add this to your workspace `opencode.json` or global `~/.config/opencode/opencod
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
+  "skills": {
+    "paths": ["skills"]
+  },
   "mcp": {
     "eldamo-remote": {
       "type": "remote",

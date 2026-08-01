@@ -45,7 +45,7 @@ Fields:
 | `model` | Model identifier passed to the backend |
 | `prompt_tokens` / `completion_tokens` / `total_tokens` | From the backend's `usage` response field |
 | `latency` | Wall-clock stream duration |
-| `cost_usd` | Estimated USD from `skills.EstimateCostUSD` — `0` for local backends; computed from a $/1M-token table for known hosted models (currently `gemini-3.1-flash-lite`; extend in `skills/usage.go:knownPricing` as new hosted models are added) |
+| `cost_usd` | Estimated USD from `skills.EstimateCostUSD` — `0` for local backends; computed from a $/1M-token table for known hosted models (currently `gemini-3.1-flash-lite`; extend in `internal/skills/usage.go:knownPricing` as new hosted models are added) |
 | `err=` | Present on `status=error` only — the backend error message |
 
 To populate the results table below, run the fixed prompt set against each

@@ -155,11 +155,11 @@ A2A `AgentSkill`s are **declarative metadata** advertised in the AgentCard; the
 SDK does not dispatch by skill — routing is the executor's job. The three
 existing repo skills map directly onto A2A skills:
 
-| Repo skill (`skills/`) | A2A skill ID | Execution model |
+| Go skill executor (`internal/skills/`) | A2A skill ID | Execution model |
 | :--- | :--- | :--- |
-| `skills/name_generate.go` | `name-generate` | Deterministic Go over the lexicon; no LLM dependency |
-| `skills/neologism.go` | `neologism` | LLM-backed (streaming, two artifacts: Practical + Poetic Path) |
-| `skills/translate.go` | `translate` | LLM-backed (streaming) |
+| `internal/skills/name_generate.go` | `name-generate` | Deterministic Go over the lexicon; no LLM dependency |
+| `internal/skills/neologism.go` | `neologism` | LLM-backed (streaming, two artifacts: Practical + Poetic Path) |
+| `internal/skills/translate.go` | `translate` | LLM-backed (streaming) |
 
 All three skills self-hide on the AgentCard when no LLM backend is configured
 (`neologism` and `translate`), or are always visible (`name-generate`).
