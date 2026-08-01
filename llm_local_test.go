@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ghchinoy/eldamoapi/skills"
+	"github.com/ghchinoy/eldamoapi/internal/skills"
 )
 
 // TestLocalLLMClient_StreamsChunksAndUsage spins up an httptest.Server that

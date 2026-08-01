@@ -13,7 +13,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
-	"github.com/ghchinoy/eldamoapi/skills"
+	"github.com/ghchinoy/eldamoapi/internal/skills"
 	"google.golang.org/genai"
 )
 

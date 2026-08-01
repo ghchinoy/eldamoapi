@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ghchinoy/eldamoapi/skills"
+	"github.com/ghchinoy/eldamoapi/internal/skills"
 )
 
 // ── Local OpenAI-compatible LLM backend ─────────────────────────────────────

@@ -25,7 +25,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/golang-jwt/jwt/v4"
-	"github.com/ghchinoy/eldamoapi/skills"
+	"github.com/ghchinoy/eldamoapi/internal/skills"
 )
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
