@@ -1,5 +1,9 @@
 # 🌟 Eldamo Agent Tools 🌟
 
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/ghchinoy/eldamoapi)](https://github.com/ghchinoy/eldamoapi/releases)
+[![Build & Test](https://github.com/ghchinoy/eldamoapi/actions/workflows/release.yml/badge.svg)](https://github.com/ghchinoy/eldamoapi/actions)
+
 A high-performance, **dual-protocol agent server** written in Go, providing AI agents with immediate, structured, linguistic access to Paul Strack's [Eldamo](http://eldamo.org/) Tolkien language lexicon compilation. A single binary speaks both:
 
 * **MCP** (Model Context Protocol) — the **transactional** surface: stateless tool calls (search, lookups, derivations, TTS) at `/sse`.
@@ -9,23 +13,40 @@ Both protocols are mounted on the same `net/http` mux, gated by the **same OAuth
 
 The server is designed for portability and serverless agility: it can be run locally as a native desktop service via either the prebuilt binaries or built from source, or deployed securely as a multi-user, OAuth-gated remote server on Google Cloud Run.
 
-This repository bundles the **MCP Server**, the (in-progress) **A2A agent surface**, and a set of **Linguistic Agent Skills** for Tolkien linguistic tasks (translation, name generation, and neologism composition).
+This repository bundles the **MCP Server**, the **A2A agent surface**, and a set of **Linguistic Agent Skills** for Tolkien linguistic tasks (translation, name generation, and neologism composition).
 
 It features a secure, modern (2026-standard) **OAuth 2.1 Authentication Layer** utilizing **Client ID Metadata Documents (CIMD)**, **Firebase Auth**, and **GCP Cloud Run**.
 
 ---
 
+## 🚀 Quick Start (Local Dev Server)
+
+Get a local Eldamo server running on your machine in under 30 seconds:
+
+```bash
+# 1. Clone the repository (requires Go 1.25.5+)
+git clone https://github.com/ghchinoy/eldamoapi.git
+cd eldamoapi
+
+# 2. Start the server in local Auth Bypass mode
+make run-dev
+```
+
+The server will listen on `http://127.0.0.1:8080` with `AUTH_BYPASS=true`. You can then point your local agent (e.g. OpenCode) to `http://127.0.0.1:8080/sse`. See the [Developer Guide](docs/DEVELOPMENT.md) for full compilation and testing workflows.
+
+
 ## 📖 Table of Contents
-1. [Exposed MCP Tools](#-exposed-mcp-tools)
-2. [A2A Agent Surface](#-a2a-agent-surface)
-3. [Linguistic Agent Skills](#-linguistic-agent-skills)
-4. [One-Line Installation (Prebuilt Binary)](#-one-line-installation-prebuilt-binary)
-5. [Client Configurations](#-client-configurations)
-6. [System Architecture & Deployment Overview](#-system-architecture--deployment-overview)
-7. [Environment Variables & Configuration](#-environment-variables--configuration)
-8. [Cloud Run Deployment](#-cloud-run-deployment)
-9. [Guide: How to Build Your Own Go MCP Server](docs/how-to-create-mcp-server-go.md)
-10. [Contributing & Development](docs/DEVELOPMENT.md)
+1. [Quick Start (Local Dev Server)](#-quick-start-local-dev-server)
+2. [Exposed MCP Tools](#-exposed-mcp-tools)
+3. [A2A Agent Surface](#-a2a-agent-surface)
+4. [Linguistic Agent Skills](#-linguistic-agent-skills)
+5. [One-Line Installation (Prebuilt Binary)](#-one-line-installation-prebuilt-binary)
+6. [Client Configurations](#-client-configurations)
+7. [System Architecture & Deployment Overview](#-system-architecture--deployment-overview)
+8. [Environment Variables & Configuration](#-environment-variables--configuration)
+9. [Cloud Run Deployment](#-cloud-run-deployment)
+10. [Documentation Index](#-documentation-index)
+11. [Contributing & Development](#-contributing--development)
 
 
 ## 🛠️ Exposed MCP Tools
@@ -122,20 +143,25 @@ For users who do not wish to clone the repository or compile from source, you ca
 curl -sL https://raw.githubusercontent.com/ghchinoy/eldamoapi/main/scripts/install.sh | bash
 ```
 
-Once installed, you can configure your local agent to run this binary as a local MCP server.
+The `eldamoapi` binary is an HTTP server (it speaks Streamable HTTP/SSE, not stdio). Start it locally in auth-bypass mode:
+```bash
+AUTH_BYPASS=true eldamoapi
+```
+
+Once running on `http://127.0.0.1:8080`, configure your desktop agent to connect over HTTP/SSE:
 
 ### A. Configure for opencode
 Add this to your global `~/.config/opencode/opencode.json` or local workspace `opencode.json`:
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
+  "skills": {
+    "paths": ["skills"]
+  },
   "mcp": {
     "eldamo-local": {
-      "type": "local",
-      "command": ["eldamoapi"],
-      "environment": {
-        "AUTH_BYPASS": "true"
-      },
+      "type": "remote",
+      "url": "http://127.0.0.1:8080/sse",
       "enabled": true
     }
   }
@@ -148,10 +174,8 @@ Add this to your `claude_desktop_config.json` file:
 {
   "mcpServers": {
     "eldamo-local": {
-      "command": "eldamoapi",
-      "env": {
-        "AUTH_BYPASS": "true"
-      }
+      "type": "remote",
+      "url": "http://127.0.0.1:8080/sse"
     }
   }
 }
@@ -265,6 +289,25 @@ Deployment is fully automated using our secure shell pipeline. This pipeline loa
 For detailed deployment blueprints and IAM safety configurations, see our [Architecture Documentation](docs/architecture.md).
 
 
+## 📚 Documentation Index
+
+| Guide | Target Audience & Purpose |
+| :--- | :--- |
+| 🏹 **[User Guide](docs/user_guide.md)** | End-user setup guide for connecting OpenCode, Claude Desktop, or Cursor to the live service. |
+| 🛠️ **[Developer Guide](docs/DEVELOPMENT.md)** | Local compilation, running tests (`make test`), linter rules, and GoReleaser release steps. |
+| 🛡️ **[Administrator's Guide](docs/ADMIN_GUIDE.md)** | Managing authorized users, scopes, and JWT token issuance via `cmd/eldamo-admin`. |
+| 💡 **[Use Cases & Exercises](docs/use_cases.md)** | Worked linguistic examples and exercises for Elvish translation and neologism creation. |
+| 🏛️ **[Dual-Protocol Architecture](docs/dual-protocol-architecture.md)** | In-depth technical specification of the multiplexed MCP + A2A dual-surface architecture. |
+| 🔒 **[Security & OAuth Architecture](docs/architecture.md)** | Deep dive into OAuth 2.1, CIMD discovery, PKCE, loopback redirection, and Firestore schemas. |
+| 🧪 **[Test Plan](docs/test-plan.md)** | Verification matrix for MCP tools, A2A skills, OAuth endpoints, and local LLM backends. |
+| 🤖 **[Local LLM Servers](docs/local-llm-servers.md)** | Standing up local llama.cpp or MLX servers for offline Gemma 4 translation and neologisms. |
+| 📊 **[Model Evaluation](docs/model-evaluation.md)** | Quality, latency, and cost-per-token comparisons across Gemini and local Gemma models. |
+| 🎓 **[How to Build Your Own Go MCP Server](docs/how-to-create-mcp-server-go.md)** | Comprehensive tutorial on building high-performance Go MCP servers with OAuth 2.1. |
+| 📝 **[Precursor Leak Resolution](docs/recursive_precursor_leak_resolution.md)** | Historical design record detailing the fix for conflated derivations in the XML pipeline. |
+
+
 ## 🤝 Contributing & Development
 
-We welcome contributions to the Eldamo MCP Server and Linguistic Agent Skills! If you want to build the server from source, run the integration test suites, configure lint analyzers, or tag a new release, see our [Developer Guide](docs/DEVELOPMENT.md).
+We welcome contributions to the Eldamo MCP Server and Linguistic Agent Skills! Pull requests are welcome — for major changes or architectural additions, please open an issue first to discuss your proposed changes.
+
+Make sure to run unit tests (`make test`) and verify the linter (`golangci-lint run` — strict 0-issue bar) before submitting a PR. For local build steps, test procedures, and release workflows, see the [Developer Guide](docs/DEVELOPMENT.md).
