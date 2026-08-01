@@ -113,40 +113,55 @@ Always record your construction logic (e.g., "I used the root X for Y, applied t
 
 ---
 
-## 8. Quantitative Evaluation (The 100-Point Scoring Matrix)
+## 8. Quantitative Evaluation (The 100-Point Two-Tier Scoring Matrix)
 
-To maintain a perfect balance between rigid phonological science and poetic, aesthetic license, every proposed neologism must undergo a quantitative evaluation out of **100 points**. This prevents over-systematization and celebrates artistic expression within the linguistic framework.
-
-### A. Phonotactic Rigor (30 Points — The "Hard Gate")
-*   **What it measures:** Uncompromising adherence to the target language's structural and phonetic rules (e.g., Quenya's final consonant *TaN-RuSeL* restriction, Sindarin soft mutations, vowel shortening in final polysyllabic codas).
-*   **Scoring:**
-    *   *30 points:* Structurally and phonologically flawless.
-    *   *0 points:* Phonologically invalid. **Disqualified.** (Poetic license cannot violate raw phonetic law).
-
-### B. Morphological & Acoustic Resonance (25 Points)
-*   **What it measures:** How naturally the word fits into the language's established vocabulary paradigms and verbal/adjectival families. Highlights *phonetic iconicity* (where the sound matches the sense, e.g., using the heavy nasal `-mp-` of `√LAMP` to convey a thudding hobbling gait).
-*   **Scoring:**
-    *   *20-25 points:* Matches surrounding vocabulary style and exhibits beautiful phonetic iconicity.
-    *   *10-19 points:* Fits well structurally but lacks poetic or iconic resonance.
-    *   *0-9 points:* Awkward compound or unusual fit.
-
-### C. Historical Pedigree (25 Points)
-*   **What it measures:** The chronological era and manuscript authority of the source root.
-*   **Scoring:**
-    *   *25 points:* **Tier 1** (Late Conception, 1950s-1970s).
-    *   *15 points:* **Tier 2** (Middle Conception, 1930s *The Etymologies*).
-    *   *5 points:* **Tier 3** (Early Conception, 1910s-1920s).
-
-### D. Anchorage Bonus (20 Points)
-*   **What it measures:** Direct or recursive proper-noun/place-name descendants via the `get_root_anchors` tool (e.g., Sador's nickname *Labadal* anchoring the root `√LOP` -> *laba-*).
-*   **Scoring:**
-    *   *+20 points:* Root possesses one or more direct/recursive proper noun or place-name anchors.
-    *   *0 points:* No attested proper noun anchor exists. **This is NOT a disqualifier.** Poetic, structurally flawless words can still score a magnificent **80/100 (An Elite Grade)**.
+To maintain a perfect balance between rigid phonological science (academic correctness) and active conlang community preferences (colloquial usage), every proposed neologism must undergo a quantitative evaluation out of **100 points**. 
 
 ---
 
-### E. Grade Index
-*   **90 - 100 (S):** Masterpiece of Elvish engineering; extremely authentic, phonetically evocative, and historically anchored.
+### Tier 1: Academic & Historical Correctness (75 Points)
+
+#### A. Phonotactic & Academic Rigor (30 Points — The "Hard Gate")
+*   **What it measures:** Uncompromising adherence to target language structural rules (e.g., Quenya's final consonant *TaN-RuSeL* restriction, Sindarin soft mutations, vowel shortening in final polysyllabic codas).
+*   **Scoring:**
+    *   *30 points:* Structurally and phonologically flawless.
+    *   *0 points:* Phonologically invalid. **Disqualified.** (No amount of community preference can override raw phonetic law).
+
+#### B. Historical Pedigree & Manuscript Authority (25 Points)
+*   **What it measures:** The chronological era and manuscript authority of the source root.
+*   **Scoring:**
+    *   *25 points:* **Tier 1** (Late Conception, 1950s-1970s, Lord of the Rings & late papers).
+    *   *15 points:* **Tier 2** (Middle Conception, 1930s *The Etymologies*).
+    *   *5 points:* **Tier 3** (Early Conception, 1910s-1920s).
+
+#### C. Eldamo & Anchorage Validation (20 Points)
+*   **What it measures:** Verification against Paul Strack's vetted Eldamo dictionary (`nq`/`ns` systems) and direct or recursive proper-noun/place-name descendants via root anchors (e.g., Sador's nickname *Labadal* anchoring the root `√LOP`).
+*   **Scoring:**
+    *   *+20 points:* Root/word is officially verified in Eldamo or has strong proper-noun anchors.
+    *   *10-15 points:* Derivative relies on secondary attested roots but lacks direct proper name anchors.
+    *   *0 points:* Purely speculative reconstruction with no attested anchoring elements.
+
+---
+
+### Tier 2: Community & Poetic Resonance (25 Points - Supplemental)
+
+#### D. Morphological & Acoustic Resonance (15 Points)
+*   **What it measures:** Natural fit into vocabulary paradigms and verbal/adjectival families. Recognizes *phonetic iconicity* (e.g., heavy nasal clusters `-mp-` for physical dragging or light liquid `-l-` for fluid motion).
+*   **Scoring:**
+    *   *11-15 points:* Matches surrounding vocabulary style and exhibits beautiful phonetic iconicity.
+    *   *5-10 points:* Fits well structurally but lacks poetic or iconic resonance.
+
+#### E. Social Resonance & Contemporary Usage (10 Points)
+*   **What it measures:** Alignment with contemporary conlang community preferences derived from active Discord research (Vinyë Lambengolmor).
+*   **Heuristics & Scoring:**
+    *   *+4 points:* Multi-syllabic balance: Community preferences skew strongly toward elaborate, multi-syllabic compositions (optimal: 7+ letters) over simple monosyllables.
+    *   *+3 points:* Target phonotactic patterns: Syllables adopting popular patterns such as `CCVCC` (which scored highest on net community votes).
+    *   *+3 points:* Proven morphological elements: Using highly popular active affixes like prefixes `ne-` / `ab-` or suffixes `-or` / `-on`.
+
+---
+
+### F. Grade Index
+*   **90 - 100 (S):** Masterpiece of Elvish engineering; extremely authentic, phonetically evocative, historically anchored, and beautifully resonant.
 *   **80 - 89 (A):** Elite Neologism; highly authentic, beautiful, and structural, though it may lack a direct historical proper-noun anchor.
 *   **60 - 79 (B):** Standard Neo-Elvish; fully usable but relies on earlier/Middle conceptions or slightly awkward compounding.
 *   **Below 60 (C/F):** Substandard; not recommended for active use.
