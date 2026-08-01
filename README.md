@@ -37,7 +37,7 @@ The server will listen on `http://127.0.0.1:8080` with `AUTH_BYPASS=true`. You c
 
 ## 📖 Table of Contents
 1. [Quick Start (Local Dev Server)](#-quick-start-local-dev-server)
-2. [Exposed MCP Tools](#-exposed-mcp-tools)
+2. [Exposed MCP Tools, Prompts & Resources](#-exposed-mcp-tools-prompts--resources)
 3. [A2A Agent Surface](#-a2a-agent-surface)
 4. [Linguistic Agent Skills](#-linguistic-agent-skills)
 5. [One-Line Installation (Prebuilt Binary)](#-one-line-installation-prebuilt-binary)
@@ -49,33 +49,36 @@ The server will listen on `http://127.0.0.1:8080` with `AUTH_BYPASS=true`. You c
 11. [Contributing & Development](#-contributing--development)
 
 
-## 🛠️ Exposed MCP Tools
+## 🛠️ Exposed MCP Tools, Prompts & Resources
 
-The server registers four specialized tools conforming to the Model Context Protocol specification:
+The server exposes specialized tools, workflow prompts, and read-only resources conforming to the Model Context Protocol specification. All read tools carry `readOnlyHint: true` annotations and feature **dual-emit results** (returning both markdown/text `content` and typed JSON `structuredContent` matching published `outputSchema`s).
 
-### 1. `enquire_lexicon`
-Performs general-purpose Tolkien linguistic search.
-* **Arguments:**
-  * `query` (string, required): Spelling prefix or search keyword (e.g. `"elen"`, `"flower"`, `"star"`).
-  * `language` (string, optional): ISO/Eldamo language code filter (e.g. `"q"` for Quenya, `"s"` for Sindarin, `"pc"` for Primitive Elvish).
-  * `speech` (string, optional): Part-of-speech filter (e.g. `"noun"`, `"verb"`, `"adjective"`, `"proper-name"`).
-  * `category` (string, optional): Filter by lexicon category/era (e.g. `"neo"` for neologisms, `"primary"` for Tolkien's writings, `"root"` for roots).
+### 🛠️ Tools
 
-### 2. `get_word_details`
-Fetches complete linguistic metadata, historical notes, inflections, and semantic details for an individual entry.
-* **Arguments:**
-  * `id` (string, required): The unique Eldamo `page-id` (e.g., `"218765"`).
+1. **`enquire_lexicon`** (*Title:* "Search Lexicon")
+   * Performs general-purpose Tolkien linguistic search across prefix spellings and keyword glosses.
+   * **Arguments:** `query` (required), `language`, `speech`, `category`
+2. **`get_word_details`** (*Title:* "Word Details")
+   * Fetches complete linguistic metadata, historical notes, inflections, and semantic details for an entry.
+   * **Arguments:** `id` (required page-id)
+3. **`get_derivations`** (*Title:* "Derivation Tree")
+   * Explores the genealogical evolution of words (ancestors or descendants).
+   * **Arguments:** `id` (required page-id), `direction` (`"descendants"` or `"ancestors"`)
+4. **`get_root_anchors`** (*Title:* "Root Anchors")
+   * Retrieves proper names (characters, places, stars, weapons) derived from a root ID.
+   * **Arguments:** `id` (required page-id)
+5. **`render_elvish_audio`** (*Title:* "Pronounce Elvish", conditional)
+   * Synthesizes audio pronunciation via Kokoro-based TTS when `ELVISH_TTS_URL` is set.
 
-### 3. `get_derivations`
-Explores the genealogical relationship and linguistic evolution of words in Tolkien's tongues.
-* **Arguments:**
-  * `id` (string, required): The unique Eldamo `page-id` (e.g., `"218765"`).
-  * `direction` (string, optional): Either `"descendants"` (words produced by this word, default) or `"ancestors"` (the roots this word was derived from).
+### 📝 Prompts
+Standard MCP workflow prompts sharing single-source instructions with our A2A skills:
+* **`tolkien-translation`**: Guided translation workflow prompt into Quenya or Sindarin.
+* **`tolkien-name-generator`**: Guided name generation prompt with compounding rules and suffixes.
+* **`neologism-builder`**: Guided neologism coining prompt with two-path choices and 100-point rubric.
 
-### 4. `get_root_anchors`
-Retrieves proper names (characters, places, stars, weapons, etc.) recursively derived from a specific root or base word ID.
-* **Arguments:**
-  * `id` (string, required): The unique Eldamo `page-id` of the root or base word (e.g., `"2071154627"`).
+### 📦 Resources
+* **`eldamo://agent-card`**: Returns the JSON AgentCard metadata describing agent capabilities.
+* **`eldamo://lexicon/stats`**: Returns summary JSON statistics (total words, keyword indices) for the in-memory index.
 
 
 ## 🤝 A2A Agent Surface
