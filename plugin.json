@@ -1,0 +1,21 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "eldamo-elvish-lexicon",
+  "version": "0.5.1",
+  "description": "Tolkien Elvish lexicon MCP tools and linguistic agent skills over Paul Strack's Eldamo compilation",
+  "author": {
+    "name": "G. H. Chinoy",
+    "url": "https://github.com/ghchinoy"
+  },
+  "homepage": "https://candir.mithlond.com",
+  "repository": "https://github.com/ghchinoy/eldamoapi",
+  "license": "Apache-2.0",
+  "keywords": [
+    "tolkien",
+    "elvish",
+    "quenya",
+    "sindarin",
+    "lexicon",
+    "linguistics"
+  ]
+}
