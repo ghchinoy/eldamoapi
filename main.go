@@ -348,8 +348,10 @@ type McpMultiplexerHandler struct {
 
 func NewMcpMultiplexerHandler(getServer func(*http.Request) *mcp.Server) *McpMultiplexerHandler {
 	return &McpMultiplexerHandler{
-		sseHandler:        mcp.NewSSEHandler(getServer, nil),
-		streamableHandler: mcp.NewStreamableHTTPHandler(getServer, nil),
+		sseHandler: mcp.NewSSEHandler(getServer, nil),
+		streamableHandler: mcp.NewStreamableHTTPHandler(getServer, &mcp.StreamableHTTPOptions{
+			Stateless: true,
+		}),
 	}
 }
 

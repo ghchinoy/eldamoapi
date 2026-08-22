@@ -647,3 +647,66 @@ func TestOAuthMiddlewareSecurity(t *testing.T) {
 	}
 }
 
+func TestStreamableHTTPStateless_StaleSessionID(t *testing.T) {
+	rawBytes, err := data.GetJSONL()
+	if err != nil {
+		t.Fatalf("Failed to decompress embedded dataset: %v", err)
+	}
+	lexiconIndex, err = index.NewIndex(rawBytes)
+	if err != nil {
+		t.Fatalf("Failed to initialize search index: %v", err)
+	}
+
+	server := createMCPServer()
+	handler := NewMcpMultiplexerHandler(func(*http.Request) *mcp.Server { return server })
+	sseHandler := sseLoggingMiddleware(handler)
+
+	testMux := http.NewServeMux()
+	testMux.Handle("/sse", sseHandler)
+	ts := httptest.NewServer(testMux)
+	defer ts.Close()
+
+	// 1. Send initialize request with a non-existent / stale session ID (simulating client reconnect after restart)
+	initBody := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"antigravity","version":"1.0.0"}}}`
+	req, err := http.NewRequest("POST", ts.URL+"/sse", strings.NewReader(initBody))
+	if err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("Mcp-Session-Id", "6TVNKDE37CG5ND26SKQZ4MVOTU")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	// In stateful mode without our fix, this would return 404 "session not found".
+	// In stateless mode, it must succeed (200 OK).
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("Expected status 200 OK for stale session ID in stateless mode, got %d", resp.StatusCode)
+	}
+
+	// 2. Send tools/call directly with a stale session ID in stateless mode
+	callBody := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"enquire_lexicon","arguments":{"query":"star"}}}`
+	callReq, err := http.NewRequest("POST", ts.URL+"/sse", strings.NewReader(callBody))
+	if err != nil {
+		t.Fatalf("Failed to create call request: %v", err)
+	}
+	callReq.Header.Set("Content-Type", "application/json")
+	callReq.Header.Set("Accept", "application/json, text/event-stream")
+	callReq.Header.Set("Mcp-Session-Id", "DEADBEEF-STALE-SESSION-ID")
+
+	callResp, err := http.DefaultClient.Do(callReq)
+	if err != nil {
+		t.Fatalf("Call request failed: %v", err)
+	}
+	defer func() { _ = callResp.Body.Close() }()
+
+	if callResp.StatusCode != http.StatusOK {
+		t.Fatalf("Expected status 200 OK for tool call with stale session ID in stateless mode, got %d", callResp.StatusCode)
+	}
+}
+
+
