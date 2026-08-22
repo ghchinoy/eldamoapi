@@ -31,3 +31,10 @@ cmd/eldamo-admin/eldamo-admin
 
 # Beads / Dolt files (added by bd init)
 .beads/proxieddb/
+
+# Beads / Dolt files (added by bd init)
+*.gate.lock*
+
+# Serena agent scratch/cache directory
+.serena/
+
