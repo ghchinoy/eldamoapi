@@ -42,8 +42,8 @@ In MCP, tools are registered with schemas defining their arguments. In Go, you d
 
 ```go
 type EnquireLexiconArgs struct {
-	Query    string `json:"query" jsonschema:"The keyword or prefix to search for (e.g., 'star', 'flower')"`
-	Language string `json:"language,omitempty" jsonschema:"Optional language code (e.g., 'q' for Quenya)"`
+	Query    string `json:"query" jsonschema:"The keyword or prefix to search for (e.g., 'hello', 'world')"`
+	Language string `json:"language,omitempty" jsonschema:"Optional language code (e.g., 'en', 'es')"`
 }
 ```
 
@@ -63,14 +63,14 @@ server := mcp.NewServer(&mcp.Implementation{
     Name:    "my-mcp-server",
     Version: "1.0.0",
 }, &mcp.ServerOptions{
-    Instructions: "You have access to the Tolkien linguistic lexicon tools. Use enquire_lexicon for definitions.",
+    Instructions: "You have access to a dictionary lookup tool. Use enquire_lexicon to find definitions.",
     KeepAlive:    30 * time.Second,
 })
 
 // 2. Register tools using the type-safe AddTool helper
 mcp.AddTool(server, &mcp.Tool{
     Name:        "enquire_lexicon",
-    Description: "Search vocabulary definitions and historical notes.",
+    Description: "Search vocabulary definitions and usage notes.",
     Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 }, enquireLexiconHandler)
 ```
@@ -167,8 +167,8 @@ func enquireLexiconHandler(ctx context.Context, req *mcp.CallToolRequest, args E
 
 	// Mock database lookup (replace with your actual database or in-memory search)
 	results := map[string]string{
-		"elen": "star (Quenya)",
-		"lume": "hour, time (Quenya)",
+		"hello": "used as a greeting or to begin a phone conversation",
+		"world": "the earth, together with all of its countries and peoples",
 	}
 
 	val, found := results[strings.ToLower(query)]
@@ -228,13 +228,13 @@ func main() {
 		Name:    "demo-mcp-server",
 		Version: "1.0.0",
 	}, &mcp.ServerOptions{
-		Instructions: "You have access to the Tolkien linguistic lexicon tools. Use enquire_lexicon for definitions.",
+		Instructions: "You have access to a dictionary lookup tool. Use enquire_lexicon to find definitions.",
 		KeepAlive:    30 * time.Second,
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "enquire_lexicon",
-		Description: "Lookup Tolkien terms.",
+		Description: "Lookup word definitions.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, enquireLexiconHandler)
 
@@ -324,14 +324,14 @@ func TestMcpIntegration(t *testing.T) {
 
 	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "enquire_lexicon",
-		Arguments: map[string]any{"query": "elen"},
+		Arguments: map[string]any{"query": "hello"},
 	})
 	if err != nil {
 		t.Fatalf("Failed to invoke tool: %v", err)
 	}
 
 	text := res.Content[0].(*mcp.TextContent).Text
-	if !strings.Contains(text, "star") {
+	if !strings.Contains(text, "greeting") {
 		t.Errorf("Unexpected result: %s", text)
 	}
 }
@@ -1067,13 +1067,14 @@ func main() {
 		Name:    "my-mcp-server",
 		Version: "1.0.0",
 	}, &mcp.ServerOptions{
-		Instructions: "You have access to the Tolkien linguistic lexicon tools. Use enquire_lexicon for definitions.",
+		Instructions: "You have access to a dictionary lookup tool. Use enquire_lexicon to find definitions.",
 		KeepAlive:    30 * time.Second,
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "enquire_lexicon",
-		Description: "Lookup Tolkien terms.",
+		Description: "Lookup word definitions.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, enquireLexiconHandler)
 
 	// Wrap multiplexer with Bearer JWT verification
