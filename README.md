@@ -296,7 +296,7 @@ For detailed deployment blueprints and IAM safety configurations, see our [Archi
 
 | Guide | Target Audience & Purpose |
 | :--- | :--- |
-| 🏹 **[User Guide](docs/user_guide.md)** | End-user setup guide for connecting OpenCode, Claude Desktop, or Cursor to the live service. |
+| 🏹 **[User Guide](docs/user_guide.md)** | End-user setup guide for connecting OpenCode, Claude Desktop, Cursor, Gemini Spark, or A2A clients (`a2acli`) to the live service. |
 | 🛠️ **[Developer Guide](docs/DEVELOPMENT.md)** | Local compilation, running tests (`make test`), linter rules, and GoReleaser release steps. |
 | 🛡️ **[Administrator's Guide](docs/ADMIN_GUIDE.md)** | Managing authorized users, scopes, and JWT token issuance via `cmd/eldamo-admin`. |
 | 💡 **[Use Cases & Exercises](docs/use_cases.md)** | Worked linguistic examples and exercises for Elvish translation and neologism creation. |

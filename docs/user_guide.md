@@ -168,3 +168,96 @@ To test that your assistant is successfully communicating with the remote Tolkie
 * *"What does the Elvish word 'elen' mean?"*
 
 Your request will hit Cloud Run, go through our `oauthMiddleware` to verify your Bearer signature, and stream your results instantly! 🏹✨
+
+
+## 5. A2A Agent Surface & Linguistic Skills
+
+Alongside transactional MCP tools, the server exposes an **A2A (Agent2Agent)** endpoint for higher-level linguistic capabilities. While MCP tools provide raw lexicon lookups, A2A skills orchestrate end-to-end tasks like authentic name compounding, poetic translation, and phonologically rigorous neologisms.
+
+* **Endpoint:** `https://candir.mithlond.com/a2a`
+* **Agent Card (Discovery):** `https://candir.mithlond.com/.well-known/agent-card.json` (public, unauthenticated)
+* **Authentication:** Uses the **same** Bearer JWT token as the MCP surface.
+
+### 🛠️ Using the A2A Conformance CLI (`a2acli`)
+
+Install and use `a2acli` to interact directly with the A2A agent:
+
+```bash
+# 1. Generate an access token (or retrieve from your admin)
+set -a; source .env; set +a
+TOKEN=$(make token UID=your-user-id)
+
+# 2. Discover the agent card (pass base domain, NOT /a2a)
+a2acli discover -u https://candir.mithlond.com
+
+# 3. Send a message to the agent (always use --wait or --immediate in CLI/CI)
+a2acli send "Generate a name for a star in Quenya" \
+  -u https://candir.mithlond.com \
+  --token "$TOKEN" \
+  --wait --output text
+```
+
+> **Note on discovery:** `a2acli` appends `/.well-known/agent-card.json` automatically. Pass the base host URL (`-u https://candir.mithlond.com`), not the `/a2a` endpoint path.
+
+---
+
+### 🧠 Available Skills & Examples
+
+The A2A agent automatically routes natural language queries to specialized skills, or you can invoke a specific skill directly using `--skill <id>`.
+
+#### 1. `name-generate` (Elvish Name Generator)
+Generates authentic Quenya or Sindarin personal, place, or weapon names by compounding historical roots and applying strict phonotactic sound laws:
+* **Example Prompt:** `"name star silver quenya"`
+* **Example Prompt:** `"name grey flame sindarin"`
+* **Direct Skill Invocation:**
+  ```bash
+  a2acli send "silver star" -u https://candir.mithlond.com --token "$TOKEN" --skill name-generate --wait --output text
+  ```
+* **Required Scope:** `skill:name-generate`
+
+#### 2. `translate` (Elvish Translator)
+Translates English text into Quenya or Sindarin using grounded lexicon retrieval and Vertex AI Gemini:
+* **Example Prompt:** `"translate farewell my friend to quenya"`
+* **Example Prompt:** `"translate to sindarin: the grey havens"`
+* **Direct Skill Invocation:**
+  ```bash
+  a2acli send "friend of stars" -u https://candir.mithlond.com --token "$TOKEN" --skill translate --wait --output text
+  ```
+* **Required Scope:** `skill:translate`
+
+#### 3. `neologism` (Elvish Neologism Builder)
+Constructs new Elvish vocabulary for modern concepts following historical Sound Laws:
+* **Example Prompt:** `"neologism hover-board quenya"`
+* **Example Prompt:** `"coin a word for artificial intelligence sindarin"`
+* **Direct Skill Invocation:**
+  ```bash
+  a2acli send "chaos" -u https://candir.mithlond.com --token "$TOKEN" --skill neologism --wait --output text
+  ```
+* **Required Scope:** `skill:neologism`
+
+#### 4. `echo` (Diagnostic Echo)
+Echoes the input back to verify transport and authentication without calling linguistic backends:
+* **Example Prompt:** `"hello"` or `"Namarie"`
+* **Required Scope:** `agent:invoke`
+
+---
+
+### 🎙️ Audio Pronunciation (`render_elvish_audio`)
+
+When running inside an MCP-enabled environment (or when TTS is configured), you can synthesize spoken Elvish audio using our Kokoro-based TTS proxy:
+
+* **Tool Name:** `render_elvish_audio`
+* **Parameters:**
+  * `text` (required): The Elvish word or phrase to pronounce (e.g., `"Elen síla lúmenn’ omentielvo"`).
+  * `voice` (optional): TTS voice identifier — `"sarah"` (default), `"bella"`, `"adam"`, `"emma"`.
+  * `speed` (optional): Playback speed — defaults to `0.8` (recommended for clear Elvish phonemes).
+* **Output:** Returns computed IPA phonemes and a streaming WAV audio URL (e.g. `https://lhongant.mithlond.com/api/audio/<hash>.wav`).
+
+---
+
+### 🔍 Client Transport Nuances & Tips
+
+* **Stateless Streamable HTTP:** The server operates in stateless mode on `/sse` and `/`. If you restart your MCP client (such as Antigravity or opencode), your client will reconnect seamlessly without `404 session not found` errors.
+* **Antigravity Desktop:** Antigravity Desktop sends an `X-Mcp-Force-Sse` header for long-lived streams. The server multiplexer routes this to the SSE handler while serving tool calls statelessly.
+* **Standalone SSE Stream Notice:** Some clients (like Antigravity CLI) may briefly log a cosmetic notice regarding standalone SSE streams. Tool calls (including audio rendering) are unaffected and complete over Streamable HTTP.
+

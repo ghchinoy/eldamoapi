@@ -82,4 +82,5 @@ These "ground truth" test cases allow Tolkien linguists and lexicon database mai
 
 ---
 
-*Tip: Always use the "Auth Bypass" mode (if running locally) or a valid token to ensure your requests reach the synthesis engine.*
+*Tip: For end-to-end client setup instructions and interactive A2A agent skill examples, see the [User Guide](user_guide.md).*
+
