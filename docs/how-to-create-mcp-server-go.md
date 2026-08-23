@@ -1,11 +1,55 @@
-# 🚀 How to Create an MCP Server with Go
+# 🚀 How to Create a Production-Ready, Secure MCP Server in Go
 
-This guide provides a comprehensive, step-by-step walkthrough for building, testing, deploying, and **securing** a high-performance **Model Context Protocol (MCP) Server** using Go and the official `github.com/modelcontextprotocol/go-sdk`.
+This guide walks through building, securing, and deploying a high-performance **Model Context Protocol (MCP)** server using Go and the official `github.com/modelcontextprotocol/go-sdk`.
 
-Go is an exceptional language for building MCP servers:
-* **Zero Dependencies:** Compiles into a single, static binary.
-* **Instant Boots:** Decompresses and boots in under **20ms**, making it perfect for serverless scale-from-zero environments.
-* **Minimal Footprint:** Consumes only **~40MB of RAM** under full load, making hosting extremely cost-effective.
+Go is an exceptional language for production MCP servers:
+* **Zero Runtime Dependencies:** Compiles into a single, self-contained static binary.
+* **Instant Boots:** Decompresses and boots in under **20ms**, ideal for serverless scale-from-zero platforms.
+* **Minimal Footprint:** Consumes **~40MB of RAM** under full load, making container hosting cost-effective.
+
+---
+
+## 🎯 The Production Challenge: Beyond Localhost Toys
+
+Most MCP tutorials show you how to expose a toy tool over `stdio` or on an unauthenticated localhost port. That works for local experimentation, but deploying an MCP server to production environments (such as Google Cloud Run, AWS ECS, or Kubernetes) surfaces three immediate failure modes:
+
+1. **The Serverless Cold-Start Problem:** Traditional MCP servers rely on stateful, long-lived Server-Sent Events (SSE) streams. In serverless scale-from-zero setups, autoscaling and container recycling cause `404 session not found` errors and disconnect active LLM sessions.
+2. **The Open-Ingress Security Problem:** Tool handlers execute real business logic, query production databases, and consume upstream APIs. Exposing them without Zero-Trust authentication invites unauthorized consumption, prompt injection replay attacks, and Server-Side Request Forgery (SSRF) sweeps.
+3. **The Database Latency Bottleneck:** Naive authorization models query a central database on every tool call, degrading sub-millisecond response expectations.
+
+### The Four Production Pillars
+
+This guide implements a battle-tested architecture solving all three problems:
+
+* **Pillar 1: Dual-Transport Multiplexing:** A single HTTP endpoint handles both legacy Server-Sent Events (SSE) streams and modern Streamable HTTP requests, serving Cursor, Claude Desktop, OpenCode, and Gemini Spark concurrently.
+* **Pillar 2: Stateless Serverless Resilience:** Configuring `Stateless: true` in `StreamableHTTPOptions` ensures every POST request is self-contained. Cold starts, instance recycling, and client reconnects never drop tool executions.
+* **Pillar 3: Zero-Trust Dynamic Identity:** Dynamic client onboarding via OAuth 2.1 (RFC 7591 DCR and Client ID Metadata Documents) combined with an SSRF-safe connection dialer.
+* **Pillar 4: Sub-Millisecond In-Memory Execution:** Ephemeral authorization codes use Firestore with native TTL during handshakes, while active tool queries validate stateless signed HMAC-SHA256 JWTs locally in memory without hitting the database.
+
+### Ingress Architecture Overview
+
+```
+Client (Cursor / OpenCode / Claude / Spark)
+       │
+       ▼
+┌─────────────────────────────────────────────────────────────┐
+│                 McpMultiplexerHandler                       │
+│  ┌─────────────────────────────┐  ┌──────────────────────┐  │
+│  │    Streamable HTTP          │  │     Legacy SSE       │  │
+│  │   (Stateless POSTs)         │  │   (GET Streams)      │  │
+│  └──────────────┬──────────────┘  └──────────┬───────────┘  │
+└─────────────────┼────────────────────────────┼──────────────┘
+                  ▼                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│              Stateless OAuth Ingress Middleware             │
+│        (Local HMAC-SHA256 JWT Signature & Scopes Gate)      │
+└──────────────────────────────┬──────────────────────────────┘
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│                Registered MCP Tool Handlers                 │
+│         (enquire_lexicon, get_word_details, etc.)           │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -416,7 +460,7 @@ func SafeHTTPClient() *http.Client {
 }
 ```
 
-### 2. Stateless Access Token Ingress Middleware
+### 3. Stateless Access Token Ingress Middleware
 Using signed **JSON Web Tokens (JWT)** as access tokens allows your server to validate active tool execution sessions locally (using signature checks) without querying Firestore or your central user directories during tool execution, enabling massive scalability.
 
 ```go
@@ -458,7 +502,7 @@ Wrap your SSE transport handler to fully protect active tool streaming:
 mux.Handle("/sse", oauthMiddleware(sseHandler))
 ```
 
-### 3. User Authorization & Admin Tooling Patterns
+### 4. User Authorization & Admin Tooling Patterns
 To move from "any authenticated user" to "authorized users with roles and scopes", you need a user directory.
 
 #### Gating JWT Issuance via Firestore
