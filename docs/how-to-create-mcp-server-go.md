@@ -23,7 +23,7 @@ Go is an exceptional language for building MCP servers:
 
 ## 1. Prerequisites & Project Setup
 
-Ensure you have **Go 1.22 or higher** installed.
+Ensure you have **Go 1.25 or higher** installed.
 
 Initialize a new Go module and add the official Model Context Protocol Go SDK:
 
@@ -58,16 +58,20 @@ func yourToolHandler(ctx context.Context, req *mcp.CallToolRequest, args YourArg
 Creating the server instance and registering tools using type-safe helpers:
 
 ```go
-// 1. Instantiate the MCP Server
+// 1. Instantiate the MCP Server with options
 server := mcp.NewServer(&mcp.Implementation{
     Name:    "my-mcp-server",
     Version: "1.0.0",
-}, nil)
+}, &mcp.ServerOptions{
+    Instructions: "You have access to the Tolkien linguistic lexicon tools. Use enquire_lexicon for definitions.",
+    KeepAlive:    30 * time.Second,
+})
 
 // 2. Register tools using the type-safe AddTool helper
 mcp.AddTool(server, &mcp.Tool{
     Name:        "enquire_lexicon",
     Description: "Search vocabulary definitions and historical notes.",
+    Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 }, enquireLexiconHandler)
 ```
 
@@ -76,9 +80,14 @@ mcp.AddTool(server, &mcp.Tool{
 
 MCP defines two standard HTTP-based transport protocols:
 1. **Server-Sent Events (SSE):** Traditional transport where the client opens a persistent `GET` stream and sends JSON-RPC payloads via separate `POST` requests.
-2. **Streamable HTTP:** A newer, high-performance transport tailored for direct agent tool invocations, using session headers.
+2. **Streamable HTTP:** A newer, high-performance transport tailored for direct agent tool invocations, using session headers and stateless request transports.
 
-To support both types of clients seamlessly, implement a custom **Multiplexer** that sniffs incoming requests and routes them to the correct SDK handler:
+To support both types of clients seamlessly, implement a custom **Multiplexer** that sniffs incoming requests and routes them to the correct SDK handler.
+
+For Streamable HTTP, configure `Stateless: true` in `StreamableHTTPOptions`. In stateless mode:
+* Each `POST` request creates a temporary, self-contained transport. Stale or reused session IDs (e.g. after a client restart) never throw `404 session not found` errors.
+* Standalone `GET` and `DELETE` requests return `405 Method Not Allowed` by design. Well-behaved Streamable HTTP clients gracefully execute all tool calls over `POST`.
+* The legacy `SSEHandler` is kept as a fallback for clients requiring long-lived streaming connections.
 
 ```go
 type McpMultiplexerHandler struct {
@@ -88,8 +97,10 @@ type McpMultiplexerHandler struct {
 
 func NewMcpMultiplexerHandler(getServer func(*http.Request) *mcp.Server) *McpMultiplexerHandler {
 	return &McpMultiplexerHandler{
-		sseHandler:        mcp.NewSSEHandler(getServer, nil),
-		streamableHandler: mcp.NewStreamableHTTPHandler(getServer, nil),
+		sseHandler: mcp.NewSSEHandler(getServer, nil),
+		streamableHandler: mcp.NewStreamableHTTPHandler(getServer, &mcp.StreamableHTTPOptions{
+			Stateless: true,
+		}),
 	}
 }
 
@@ -132,6 +143,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -167,6 +179,7 @@ func enquireLexiconHandler(ctx context.Context, req *mcp.CallToolRequest, args E
 		reply = fmt.Sprintf("No matches found for '%s'.", query)
 	}
 
+	log.Printf("[Tool Result] enquire_lexicon: %s", reply)
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: reply},
@@ -181,8 +194,10 @@ type McpMultiplexerHandler struct {
 
 func NewMcpMultiplexerHandler(getServer func(*http.Request) *mcp.Server) *McpMultiplexerHandler {
 	return &McpMultiplexerHandler{
-		sseHandler:        mcp.NewSSEHandler(getServer, nil),
-		streamableHandler: mcp.NewStreamableHTTPHandler(getServer, nil),
+		sseHandler: mcp.NewSSEHandler(getServer, nil),
+		streamableHandler: mcp.NewStreamableHTTPHandler(getServer, &mcp.StreamableHTTPOptions{
+			Stateless: true,
+		}),
 	}
 }
 
@@ -212,11 +227,15 @@ func main() {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "demo-mcp-server",
 		Version: "1.0.0",
-	}, nil)
+	}, &mcp.ServerOptions{
+		Instructions: "You have access to the Tolkien linguistic lexicon tools. Use enquire_lexicon for definitions.",
+		KeepAlive:    30 * time.Second,
+	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "enquire_lexicon",
 		Description: "Lookup Tolkien terms.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, enquireLexiconHandler)
 
 	mux := http.NewServeMux()
@@ -328,9 +347,9 @@ go test -v ./...
 
 When hosting an MCP server on a serverless, stateless platform like Google Cloud Run, there are **two critical rules** you must follow to prevent connection dropouts and silent hangs:
 
-### Rule 1: Always Enable Session Affinity
-Because standard MCP clients maintain stateful, in-memory sessions, subsequent handshake and tool execution requests from the same client **must** hit the exact same container instance. 
-* If a request gets routed to a different container instance, the server throws a `session not found` error.
+### Rule 1: Enable Session Affinity for Stateful Fallbacks
+For legacy or stateful SSE streams that require in-memory session persistence, subsequent handshake and streaming requests from the same client **must** hit the exact same container instance. 
+* Without affinity, multi-instance Cloud Run scaling can route requests across different containers, causing `session not found` errors on stateful connections.
 
 Add the `--session-affinity` flag when deploying to Cloud Run:
 ```bash
@@ -345,10 +364,10 @@ gcloud run deploy my-mcp-server \
 ```
 
 ### Rule 2: Embrace Stateless Mode for Resilient Tool Servers
-For stateless read-only tool servers, set `Stateless: true` in your `StreamableHTTPOptions`:
-* Stateless mode ensures that client restarts, container redeployments, and scale-to-zero cold starts never fail with `404 session not found` errors.
-* Incoming requests bearing stale or non-existent `Mcp-Session-Id` headers are served statelessly in temporary request transports.
-* Modern protocol revisions (`2026-07-28` / SEP-2575) standardize this sessionless model across MCP implementations.
+For read-only tool execution over Streamable HTTP, configure `Stateless: true` in your `StreamableHTTPOptions`:
+* Stateless mode eliminates `404 session not found` errors caused by container cold starts, scale-to-zero instance replacement, or client restarts.
+* Incoming requests bearing stale or non-existent `Mcp-Session-Id` headers are handled statelessly in self-contained request transports.
+* Modern protocol revisions (`2026-07-28` / SEP-2575) standardize this sessionless model across all MCP implementations.
 
 
 ## 8. Securing with OAuth 2.1 & Client ID Metadata Documents (CIMD)
@@ -1047,7 +1066,10 @@ func main() {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "my-mcp-server",
 		Version: "1.0.0",
-	}, nil)
+	}, &mcp.ServerOptions{
+		Instructions: "You have access to the Tolkien linguistic lexicon tools. Use enquire_lexicon for definitions.",
+		KeepAlive:    30 * time.Second,
+	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "enquire_lexicon",
