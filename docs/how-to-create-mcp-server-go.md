@@ -32,7 +32,7 @@ mkdir my-mcp-server && cd my-mcp-server
 go mod init github.com/username/my-mcp-server
 
 # Install the official Go SDK
-go get github.com/modelcontextprotocol/go-sdk@v1.6.1
+go get github.com/modelcontextprotocol/go-sdk@v1.7.0
 ```
 
 
@@ -344,10 +344,11 @@ gcloud run deploy my-mcp-server \
     --session-affinity
 ```
 
-### Rule 2: Keep Streamable HTTP Stateful (Avoid the 405 Trap)
-Do **NOT** set `Stateless: true` in your `StreamableHTTPOptions` if your clients use Streamable HTTP.
-* Setting `Stateless: true` forces the Go SDK to reject long-running stream connections (`GET /sse` with session headers) with a **`405 Method Not Allowed`** code.
-* Rely on **Session Affinity** (Rule 1) to handle the routing of stateful sessions instead of disabling state entirely.
+### Rule 2: Embrace Stateless Mode for Resilient Tool Servers
+For stateless read-only tool servers, set `Stateless: true` in your `StreamableHTTPOptions`:
+* Stateless mode ensures that client restarts, container redeployments, and scale-to-zero cold starts never fail with `404 session not found` errors.
+* Incoming requests bearing stale or non-existent `Mcp-Session-Id` headers are served statelessly in temporary request transports.
+* Modern protocol revisions (`2026-07-28` / SEP-2575) standardize this sessionless model across MCP implementations.
 
 
 ## 8. Securing with OAuth 2.1 & Client ID Metadata Documents (CIMD)
