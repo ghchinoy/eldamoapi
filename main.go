@@ -69,8 +69,20 @@ type GetRootAnchorsResult struct {
 }
 
 func renderElvishAudioHandler(ctx context.Context, req *mcp.CallToolRequest, args RenderElvishAudioArgs) (*mcp.CallToolResult, any, error) {
+	voice := args.Voice
+	if voice == "" {
+		voice = "sarah"
+	}
+	speed := args.Speed
+	if speed == 0 {
+		speed = 0.8 // Default to slightly slower
+	}
+
+	log.Printf("[Tool Call] render_elvish_audio: text='%s' (voice='%s', speed=%.1f)", args.Text, voice, speed)
+
 	ttsURL := os.Getenv("ELVISH_TTS_URL")
 	if ttsURL == "" {
+		log.Printf("[Tool Result] render_elvish_audio: error: TTS_SERVICE_URL not configured")
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: "Error: TTS_SERVICE_URL not configured."},
@@ -79,28 +91,22 @@ func renderElvishAudioHandler(ctx context.Context, req *mcp.CallToolRequest, arg
 		}, nil, nil
 	}
 
-	speed := args.Speed
-	if speed == 0 {
-		speed = 0.8 // Default to slightly slower
-	}
-
 	payload := map[string]interface{}{
 		"text":  args.Text,
-		"voice": args.Voice,
+		"voice": voice,
 		"speed": speed,
-	}
-	if payload["voice"] == "" {
-		payload["voice"] = "sarah"
 	}
 
 	body, _ := json.Marshal(payload)
 	resp, err := http.Post(ttsURL+"/api/g2p", "application/json", bytes.NewBuffer(body))
 	if err != nil {
+		log.Printf("[Tool Result] render_elvish_audio: failed to call TTS service: %v", err)
 		return nil, nil, fmt.Errorf("failed to call TTS service: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("[Tool Result] render_elvish_audio: TTS service returned status %d", resp.StatusCode)
 		return nil, nil, fmt.Errorf("TTS service returned status: %d", resp.StatusCode)
 	}
 
@@ -109,10 +115,12 @@ func renderElvishAudioHandler(ctx context.Context, req *mcp.CallToolRequest, arg
 		Phonemes string `json:"phonemes"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&ttsResp); err != nil {
+		log.Printf("[Tool Result] render_elvish_audio: failed to decode response: %v", err)
 		return nil, nil, fmt.Errorf("failed to decode TTS response: %w", err)
 	}
 
 	fullAudioURL := ttsURL + ttsResp.AudioURL
+	log.Printf("[Tool Result] render_elvish_audio: synthesized for '%s' (phonemes='%s', audio_url='%s')", args.Text, ttsResp.Phonemes, fullAudioURL)
 	msg := fmt.Sprintf("Synthesized pronunciation for '%s' (speed: %.1f).\n\nPhonemes: %s\nAudio URL: %s", args.Text, speed, ttsResp.Phonemes, fullAudioURL)
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
