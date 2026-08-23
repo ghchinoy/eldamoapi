@@ -1,6 +1,6 @@
 # 🛡️ Mithlond Eldamo MCP Server: Administrator's Guide
 
-This document is the official operational guide for system administrators managing the **Mithlond Eldamo MCP Server** authentication gateway, user scopes, and diagnostic flows.
+This document is the official operational guide for system administrators managing the **Mithlond Eldamo MCP & A2A Server** authentication gateway, user scopes, access requests, and diagnostic flows.
 
 ---
 
@@ -8,58 +8,84 @@ This document is the official operational guide for system administrators managi
 
 Our security pipeline separates **Identity** (who the user is, verified securely by Google/Firebase Auth) from **Authorization** (what resources/tools the user can access, managed dynamically in our Firestore database).
 
-1.  **Identity Verification:** The desktop client or web frontend authenticates via Google.
-2.  **Authorization Check:** The backend exchanges the Google ID token and performs a Firestore lookup on the `authorized_users` collection.
-3.  **Scoped JWT Issuance:** If authorized and active, the backend signs a custom, stateless JSON Web Token (JWT) containing the user's allowed scopes, roles, and expiration.
+1. **Identity Verification:** The desktop client (Cursor, Claude, OpenCode, Spark, Antigravity) or web frontend authenticates via Google Auth on `https://www.mithlond.com/mcp-auth`.
+2. **Authorization Check:** The backend exchanges the Google ID token and performs a Firestore lookup on the `authorized_users` collection in the `mithlond-services` database.
+3. **Scoped JWT Issuance:** If authorized and active, the backend signs a custom, stateless JSON Web Token (JWT) containing the user's allowed scopes, roles, and expiration.
+
+---
 
 ## 🛠️ Admin CLI Tooling (`eldamo-admin`)
 
-We provide a compiled command-line utility located in `./bin/eldamo-admin` (and run via `make`) to safely manage authorized users, roles, and scopes without exposing admin endpoints to the public internet.
+We provide a compiled command-line utility located in `./bin/eldamo-admin` (built from `cmd/eldamo-admin/main.go`, styled with **Charm Lip Gloss**) to safely manage authorized users, incoming access requests, roles, and scopes without exposing admin endpoints to the public internet.
 
 ### Environment Requirements
-Ensure your terminal contains the appropriate Google Cloud credentials:
+The tool defaults to `FIREBASE_PROJECT_ID=testingproject-19c4c` and `FIREBASE_DATABASE=mithlond-services`. To override:
 ```bash
 export FIREBASE_PROJECT_ID="testingproject-19c4c"
 export FIREBASE_DATABASE="mithlond-services"
 ```
 
-### 1. Authorizing New Users
-
-Colleagues who want access can be authorized in two ways.
-
-#### Method A: Pre-Registration (Recommended for onboarding)
-You can pre-register a user before they even log in. Their record will stay inactive until they visit the Mithlond portal and authenticate.
+### Build & Run
 ```bash
-./bin/eldamo-admin pre-register colleague@gmail.com
-```
-Once they log in at `https://www.mithlond.com/mcp-auth`, the server will automatically link their Firebase UID to this record and activate it.
+# Build the binary
+go build -o bin/eldamo-admin ./cmd/eldamo-admin
 
-#### Method B: Direct Authorization (By Email)
-If they have already logged in at `https://www.mithlond.com/mcp-auth`, you can register them directly:
-```bash
-./bin/eldamo-admin add-email colleague@gmail.com
+# View available commands
+./bin/eldamo-admin --help
 ```
 
-### 2. Inspecting User Directory
-To list all currently registered users, their scopes, and active statuses:
+---
+
+## 📋 Common Administrative Tasks
+
+### 1. Reviewing & Approving Access Requests
+Users can submit access requests directly via the web portal at `https://www.mithlond.com/mcp-auth`.
+
+```bash
+# List all incoming workspace access requests
+./bin/eldamo-admin requests list
+
+# Approve an applicant by their Google UID
+./bin/eldamo-admin requests approve <FIREBASE_UID>
+```
+*Approving automatically adds the user to `authorized_users` with `active: true` and all standard default scopes, and marks the request document as `status: approved`.*
+
+### 2. Inspecting the User Directory
+To view all currently registered users, their scopes, roles, and active statuses in a formatted table:
 ```bash
 ./bin/eldamo-admin list
 ```
 
-### 5. Managing Scopes
-You can grant or revoke specific granular scopes to a user's authorized record in real-time:
+### 3. Adding Users Manually
 
+#### Method A: Pre-Registration (By Email)
+Pre-register a colleague before they log in. Their record will stay `inactive` until they visit the Mithlond portal and authenticate with their Google account:
 ```bash
-# Grant an additional scope (e.g., audio:generate)
-./bin/eldamo-admin grant <UID> audio:generate
+./bin/eldamo-admin pre-register colleague@example.com
+```
+
+#### Method B: Direct Authorization (By UID)
+Add a user directly by their verified Firebase UID:
+```bash
+./bin/eldamo-admin add <FIREBASE_UID> colleague@example.com
+```
+
+### 4. Managing Scopes
+Grant or revoke specific granular scopes in real-time:
+```bash
+# Grant a specific scope to a user (by UID or email)
+./bin/eldamo-admin grant <UID-or-EMAIL> audio:generate
 
 # Revoke a scope
-./bin/eldamo-admin revoke-scope <UID> audio:generate
+./bin/eldamo-admin revoke-scope <UID-or-EMAIL> audio:generate
+
+# Grant new scopes to ALL authorized users (idempotent, safe migration helper)
+./bin/eldamo-admin grant-all skill:name-generate skill:translate skill:neologism
 ```
 *(Changes take effect upon the user's next token refresh or re-authentication.)*
 
-### 4. Issuing Manual Handshake Tokens (Diagnostic)
-To bypass the browser-based OAuth dance entirely and generate a 1-hour secure JWT access token for testing local or remote clients:
+### 5. Generating Handshake Access Tokens (Diagnostics & CI)
+To bypass the browser-based OAuth flow and generate a 1-hour secure JWT access token for testing local or remote clients:
 ```bash
 # Using the make target helper
 make token UID=<USER-UID>
@@ -68,28 +94,29 @@ make token UID=<USER-UID>
 ./bin/eldamo-admin token <USER-UID>
 ```
 
+---
 
-## 🔒 Token Scopes & Permissions
+## 🔒 Token Scopes & Permissions Matrix
 
-Our MCP server checks for specific scopes inside the `MITHLOND_ACCESS_TOKEN` JWT claim when enforcing tool authorization:
+Our server verifies specific scopes inside the signed `MITHLOND_ACCESS_TOKEN` JWT claims:
 
-| Scope Name | Bound Tool | Description |
+| Scope Name | Bound Tools / Endpoints | Description |
 | :--- | :--- | :--- |
 | `lexicon:read` | `enquire_lexicon`<br/>`get_word_details`<br/>`get_derivations`<br/>`get_root_anchors` | General reading, spelling search, historical note retrieval, and semantic derivation tree queries. |
-| `audio:generate` | `render_elvish_audio` | Access to the conditional Kokoro-based G2P/TTS pronunciation synthesis engine. |
-
-### How Scopes are Enforced
-*   **The Backend Gating:** Endpoints like `/sse` are wrapped with the `gate("lexicon:read", secureHandler)` middleware, which decodes the JWT claims and rejects requests lacking that exact scope with `403 Forbidden`.
-*   **The Client Request:** During dynamic Handshakes, OpenCode parses the allowed scopes returned under the `Scope` field in `/api/oauth/token` (which we serialize dynamically as space-separated values, e.g. `"lexicon:read audio:generate"`).
+| `audio:generate` | `render_elvish_audio` | Access to the Kokoro-based G2P/TTS neural pronunciation synthesis engine. |
+| `agent:invoke` | `POST /a2a` | Send A2A task invocation messages to the Eldamo interactional agent. |
+| `skill:name-generate` | `name-generate` skill | Execute deterministic Elvish personal, place, and weapon compounding. |
+| `skill:translate` | `translate` skill | Execute LLM-grounded translation into Quenya or Sindarin. |
+| `skill:neologism` | `neologism` skill | Execute two-path neologism creation with 100-point phonotactic scoring. |
 
 ---
 
 ## 🚨 Troubleshooting Reference
 
 ### "Redirect URI not authorized for client"
-*   **The Cause:** The port or path requested by the client (e.g. `http://127.0.0.1:19876/mcp/oauth/callback`) does not match the strict whitelist in your deployed `https://www.mithlond.com/metadata.json` document.
-*   **The Solution:** Confirm the port is dynamic loopback. Our server is RFC 8252 compliant and will match any loopback port automatically *if* the path matches. Ensure `"http://127.0.0.1:8080/mcp/oauth/callback"` is listed in the `redirect_uris` array on `mithlond.com/metadata.json` (making sure `/mcp/oauth/callback` matches the path).
+* **The Cause:** The port or path requested by the client does not match the allowed redirect URIs.
+* **The Solution:** Confirm the client uses dynamic loopback (RFC 8252). Our server matches loopback ports automatically as long as the path matches `/mcp/oauth/callback` or `/oauth/callback`.
 
 ### "User not authorized or inactive"
-*   **The Cause:** The user has signed in on the portal, but their UID does not exist or is marked `active: false` in Firestore.
-*   **The Solution:** Copy their UID from the Cloud Run logs and run `./bin/eldamo-admin add-email <email>` to lookup and add them with active status.
+* **The Cause:** The user has signed in on the portal, but their UID does not exist or is marked `active: false` in the `authorized_users` collection.
+* **The Solution:** Run `./bin/eldamo-admin requests list` to find their pending UID and run `./bin/eldamo-admin requests approve <UID>`.
