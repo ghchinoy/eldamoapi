@@ -48,7 +48,7 @@ Users can submit access requests directly via the web portal at `https://www.mit
 # Approve an applicant by their Google UID
 ./bin/eldamo-admin requests approve <FIREBASE_UID>
 ```
-*Approving automatically adds the user to `authorized_users` with `active: true` and all standard default scopes, and marks the request document as `status: approved`.*
+*Approving automatically adds the user to `authorized_users` with `active: true` and the **minimal baseline scopes** (`lexicon:read`, `agent:invoke`, `skill:name-generate`), and marks the request document as `status: approved`.*
 
 ### 2. Inspecting the User Directory
 To view all currently registered users, their scopes, roles, and active statuses in a formatted table:
@@ -59,22 +59,26 @@ To view all currently registered users, their scopes, roles, and active statuses
 ### 3. Adding Users Manually
 
 #### Method A: Pre-Registration (By Email)
-Pre-register a colleague before they log in. Their record will stay `inactive` until they visit the Mithlond portal and authenticate with their Google account:
+Pre-register a colleague before they log in. Their record will stay `inactive` with minimal baseline scopes until they visit the Mithlond portal and authenticate with their Google account:
 ```bash
 ./bin/eldamo-admin pre-register colleague@example.com
 ```
 
 #### Method B: Direct Authorization (By UID)
-Add a user directly by their verified Firebase UID:
+Add a user directly by their verified Firebase UID (grants minimal baseline scopes):
 ```bash
 ./bin/eldamo-admin add <FIREBASE_UID> colleague@example.com
 ```
 
-### 4. Managing Scopes
-Grant or revoke specific granular scopes in real-time:
+### 4. Managing & Upgrading Scopes
+Newly approved users receive the minimal baseline tier. Grant cost-bearing or advanced scopes (TTS audio, LLM translation/neologisms) individually as needed:
 ```bash
-# Grant a specific scope to a user (by UID or email)
+# Upgrade: Grant audio TTS capability to a user (by UID or email)
 ./bin/eldamo-admin grant <UID-or-EMAIL> audio:generate
+
+# Upgrade: Grant LLM-backed skills to a user
+./bin/eldamo-admin grant <UID-or-EMAIL> skill:translate
+./bin/eldamo-admin grant <UID-or-EMAIL> skill:neologism
 
 # Revoke a scope
 ./bin/eldamo-admin revoke-scope <UID-or-EMAIL> audio:generate
@@ -85,7 +89,7 @@ Grant or revoke specific granular scopes in real-time:
 *(Changes take effect upon the user's next token refresh or re-authentication.)*
 
 ### 5. Generating Handshake Access Tokens (Diagnostics & CI)
-To bypass the browser-based OAuth flow and generate a 1-hour secure JWT access token for testing local or remote clients:
+To bypass the browser-based OAuth flow and generate a 1-hour secure JWT access token with full scopes for testing local or remote clients:
 ```bash
 # Using the make target helper
 make token UID=<USER-UID>
@@ -98,16 +102,16 @@ make token UID=<USER-UID>
 
 ## 🔒 Token Scopes & Permissions Matrix
 
-Our server verifies specific scopes inside the signed `MITHLOND_ACCESS_TOKEN` JWT claims:
+Our server verifies specific scopes inside the signed `MITHLOND_ACCESS_TOKEN` JWT claims. Scopes are organized into two tiers: **Baseline** (granted automatically upon onboarding) and **Upgrade-Only** (granted individually to manage cost and rate limits).
 
-| Scope Name | Bound Tools / Endpoints | Description |
-| :--- | :--- | :--- |
-| `lexicon:read` | `enquire_lexicon`<br/>`get_word_details`<br/>`get_derivations`<br/>`get_root_anchors` | General reading, spelling search, historical note retrieval, and semantic derivation tree queries. |
-| `audio:generate` | `render_elvish_audio` | Access to the Kokoro-based G2P/TTS neural pronunciation synthesis engine. |
-| `agent:invoke` | `POST /a2a` | Send A2A task invocation messages to the Eldamo interactional agent. |
-| `skill:name-generate` | `name-generate` skill | Execute deterministic Elvish personal, place, and weapon compounding. |
-| `skill:translate` | `translate` skill | Execute LLM-grounded translation into Quenya or Sindarin. |
-| `skill:neologism` | `neologism` skill | Execute two-path neologism creation with 100-point phonotactic scoring. |
+| Scope Name | Tier | Bound Tools / Endpoints | Description |
+| :--- | :--- | :--- | :--- |
+| `lexicon:read` | **Baseline** | `enquire_lexicon`<br/>`get_word_details`<br/>`get_derivations`<br/>`get_root_anchors` | General reading, spelling search, historical note retrieval, and semantic derivation tree queries. (Free, in-memory) |
+| `agent:invoke` | **Baseline** | `POST /a2a` | Send A2A task invocation messages to the Eldamo interactional agent. |
+| `skill:name-generate` | **Baseline** | `name-generate` skill | Execute deterministic Elvish personal, place, and weapon compounding. (Free, deterministic) |
+| `skill:translate` | *Upgrade* | `translate` skill | Execute LLM-grounded translation into Quenya or Sindarin. (External LLM API) |
+| `skill:neologism` | *Upgrade* | `neologism` skill | Execute two-path neologism creation with 100-point phonotactic scoring. (External LLM API) |
+| `audio:generate` | *Upgrade* | `render_elvish_audio` | Access to the Kokoro-based G2P/TTS neural pronunciation synthesis engine. (External TTS proxy) |
 
 ---
 

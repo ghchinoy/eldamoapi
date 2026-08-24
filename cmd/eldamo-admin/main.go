@@ -23,7 +23,6 @@ var (
 	colorGold    = lipgloss.Color("#DCB386")
 	colorSlate   = lipgloss.Color("#64748B")
 	colorBorder  = lipgloss.Color("#334155")
-	colorBgDark  = lipgloss.Color("#0F172A")
 
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -142,9 +141,19 @@ func main() {
 	}
 }
 
-// defaultUserScopes is the canonical baseline scope set granted to every new
-// user. Keep this in sync with allScopes in a2a.go.
-var defaultUserScopes = []string{
+// minimalDefaultScopes is the baseline scope tier granted to newly approved /
+// onboarded users. It includes all free, deterministic, in-memory capabilities
+// (lexicon search, A2A messaging, deterministic name generation).
+// Cost-bearing capabilities (LLM skills like translate/neologism, and audio TTS)
+// require an explicit upgrade via grant-scope.
+var minimalDefaultScopes = []string{
+	"lexicon:read",
+	"agent:invoke",
+	"skill:name-generate",
+}
+
+// allUserScopes contains the full capability set supported by this server.
+var allUserScopes = []string{
 	"lexicon:read",
 	"audio:generate",
 	"agent:invoke",
@@ -152,6 +161,10 @@ var defaultUserScopes = []string{
 	"skill:translate",
 	"skill:neologism",
 }
+
+// defaultUserScopes is the canonical baseline scope set granted to every new
+// user on onboarding/approval.
+var defaultUserScopes = minimalDefaultScopes
 
 var listCmd = &cobra.Command{
 	Use:   "list",
@@ -588,7 +601,7 @@ var tokenCmd = &cobra.Command{
 			titleStyle.Render("🔑 Mithlond Access Token"),
 			labelStyle.Render("Subject:"), goldStyle.Render(uid),
 			labelStyle.Render("Expires:"), valueStyle.Render("1 hour (stateless HMAC-SHA256)"),
-			labelStyle.Render("Scopes:"), subtleStyle.Render("lexicon:read, audio:generate, agent:invoke, skill:*"),
+			labelStyle.Render("Scopes:"), subtleStyle.Render(strings.Join(allUserScopes, ", ")),
 			labelStyle.Render("Token:"),
 			tokenBox,
 		)
@@ -603,13 +616,10 @@ func generateToken(uid string) (string, error) {
 	}
 
 	claims := jwt.MapClaims{
-		"sub": uid,
-		"scopes": []string{
-			"lexicon:read", "audio:generate",
-			"agent:invoke", "skill:name-generate", "skill:translate", "skill:neologism",
-		},
-		"exp":  time.Now().Add(1 * time.Hour).Unix(),
-		"type": "access",
+		"sub":    uid,
+		"scopes": allUserScopes,
+		"exp":    time.Now().Add(1 * time.Hour).Unix(),
+		"type":   "access",
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
