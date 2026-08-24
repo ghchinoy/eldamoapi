@@ -113,7 +113,8 @@ The authorization-server metadata advertises both:
 Beyond authentication, the server implements granular control:
 - **`authorized_users` Collection:** Stores user-specific records in Firestore including `active` status, `roles`, and `scopes`.
 - **JWT Embedding:** `handleTokenExchange` embeds the user's `scopes` and `roles` into JWT claims (`sub`, `scopes`, `roles`).
-- **Middleware Gating:** `gate("lexicon:read", handler)` validates claims locally during tool execution — no Firestore lookup during active calls.
+- **Middleware Gating:** `gate("lexicon:read", handler)` validates claims locally during transport connection — no Firestore lookup during active calls.
+- **Per-Tool Handler Decorators:** Individual tool handlers wrap execution logic with `RequireScope("scope:name", handler)` to enforce authorization boundaries per tool before executing business logic.
 
 ### 4.5 Stateless Signed Access Tokens (JWT)
 - `authorization_code + PKCE S256` exchange at `/api/oauth/token` issues HMAC-SHA256 signed JWTs.
