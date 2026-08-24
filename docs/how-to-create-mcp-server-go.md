@@ -17,14 +17,15 @@ Most MCP tutorials show you how to expose a toy tool over `stdio` or on an unaut
 2. **The Open-Ingress Security Problem:** Tool handlers execute real business logic, query production databases, and consume upstream APIs. Exposing them without Zero-Trust authentication invites unauthorized consumption, prompt injection replay attacks, and Server-Side Request Forgery (SSRF) sweeps.
 3. **The Database Latency Bottleneck:** Naive authorization models query a central database on every tool call, degrading sub-millisecond response expectations.
 
-### The Four Production Pillars
+### The Five Production Pillars
 
 This guide implements a battle-tested architecture solving all three problems:
 
-* **Pillar 1: Dual-Transport Multiplexing:** A single HTTP endpoint handles both legacy Server-Sent Events (SSE) streams and modern Streamable HTTP requests, serving Cursor, Claude Desktop, OpenCode, and Gemini Spark concurrently.
+* **Pillar 1: Dual-Transport Multiplexing:** A single HTTP endpoint handles both legacy Server-Sent Events (SSE) streams and modern Streamable HTTP requests, serving Cursor, Claude Desktop, OpenCode, Gemini Spark, Antigravity Desktop, and the `agy` CLI concurrently.
 * **Pillar 2: Stateless Serverless Resilience:** Configuring `Stateless: true` in `StreamableHTTPOptions` ensures every POST request is self-contained. Cold starts, instance recycling, and client reconnects never drop tool executions.
 * **Pillar 3: Zero-Trust Dynamic Identity:** Dynamic client onboarding via OAuth 2.1 (RFC 7591 DCR and Client ID Metadata Documents) combined with an SSRF-safe connection dialer.
-* **Pillar 4: Sub-Millisecond In-Memory Execution:** Ephemeral authorization codes use Firestore with native TTL during handshakes, while active tool queries validate stateless signed HMAC-SHA256 JWTs locally in memory without hitting the database.
+* **Pillar 4: Granular Access-Scoped Tools (Least Privilege):** Tools declare specific required scopes (`tools:read`, `audio:generate`, `admin:access`). Generic type-safe decorators enforce authorization boundaries per tool before executing business logic.
+* **Pillar 5: Sub-Millisecond In-Memory Execution:** Ephemeral authorization codes use Firestore with native TTL during handshakes, while active tool queries validate stateless signed HMAC-SHA256 JWTs locally in memory without hitting the database.
 
 ### Ingress Architecture Overview
 
