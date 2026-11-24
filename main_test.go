@@ -435,11 +435,11 @@ func TestProtectedResourceMetadata(t *testing.T) {
 	resp := decode(t, w)
 
 	if resp["resource"] != "https://candir.mithlond.com" {
-		t.Errorf("Expected resource 'https://candir.mithlond.com', got '%v'", resp["resource"])
+		t.Errorf("handleProtectedResourceMetadata(/) resource = %q, want %q", resp["resource"], "https://candir.mithlond.com")
 	}
 	authServers, ok := resp["authorization_servers"].([]any)
 	if !ok || len(authServers) != 1 || authServers[0] != "https://candir.mithlond.com" {
-		t.Errorf("Expected authorization_servers ['https://candir.mithlond.com'], got '%v'", resp["authorization_servers"])
+		t.Errorf("handleProtectedResourceMetadata(/) authorization_servers = %v, want [https://candir.mithlond.com]", resp["authorization_servers"])
 	}
 
 	// 2. Resource-path-suffixed variant (RFC 9728): resource reflects the /sse path.
@@ -449,7 +449,7 @@ func TestProtectedResourceMetadata(t *testing.T) {
 	handleProtectedResourceMetadata(wSSE, reqSSE)
 	respSSE := decode(t, wSSE)
 	if respSSE["resource"] != "https://candir.mithlond.com/sse" {
-		t.Errorf("Expected resource 'https://candir.mithlond.com/sse', got '%v'", respSSE["resource"])
+		t.Errorf("handleProtectedResourceMetadata(/sse) resource = %q, want %q", respSSE["resource"], "https://candir.mithlond.com/sse")
 	}
 
 	// 3. Non-GET (other than OPTIONS) is rejected.

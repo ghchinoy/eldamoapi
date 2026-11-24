@@ -398,7 +398,7 @@ func handleClientRegistration(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	log.Printf("[DCR] Registered public client '%s' (name=%q, %d redirect_uris)", reg.ClientID, reg.ClientName, len(reg.RedirectURIs))
+	log.Printf("[DCR] Registered public client %q (name=%q, %d redirect_uris)", reg.ClientID, reg.ClientName, len(reg.RedirectURIs))
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(reg)
 }
