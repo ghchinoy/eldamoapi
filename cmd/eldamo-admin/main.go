@@ -135,7 +135,7 @@ func getFirebaseAuthClient() (*auth.Client, error) {
 
 func main() {
 	requestsCmd.AddCommand(requestsListCmd, requestsApproveCmd)
-	rootCmd.AddCommand(listCmd, addCmd, preRegisterCmd, grantCmd, revokeScopeCmd, grantAllCmd, tokenCmd, requestsCmd)
+	rootCmd.AddCommand(listCmd, addCmd, preRegisterCmd, grantCmd, revokeScopeCmd, grantAllCmd, tokenCmd, requestsCmd, revokeCmd, deactivateCmd)
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
@@ -385,12 +385,13 @@ var requestsApproveCmd = &cobra.Command{
 
 		// 1. Add to authorized_users with active: true and defaultUserScopes
 		_, err = client.Collection("authorized_users").Doc(uid).Set(ctx, map[string]interface{}{
-			"uid":         uid,
-			"email":       email,
-			"displayName": displayName,
-			"active":      true,
-			"roles":       []string{"user"},
-			"scopes":      defaultUserScopes,
+			"uid":           uid,
+			"email":         email,
+			"displayName":   displayName,
+			"active":        true,
+			"roles":         []string{"user"},
+			"scopes":        defaultUserScopes,
+			"token_version": 0,
 		})
 		if err != nil {
 			log.Fatalf("Failed to add user to authorized_users: %v", err)
@@ -427,11 +428,12 @@ var addCmd = &cobra.Command{
 
 		uid, email := args[0], args[1]
 		_, err = client.Collection("authorized_users").Doc(uid).Set(context.Background(), map[string]interface{}{
-			"uid":    uid,
-			"email":  email,
-			"active": true,
-			"roles":  []string{"user"},
-			"scopes": defaultUserScopes,
+			"uid":           uid,
+			"email":         email,
+			"active":        true,
+			"roles":         []string{"user"},
+			"scopes":        defaultUserScopes,
+			"token_version": 0,
 		})
 		if err != nil {
 			log.Fatal(err)
@@ -462,11 +464,12 @@ var preRegisterCmd = &cobra.Command{
 		defer func() { _ = client.Close() }()
 
 		_, err = client.Collection("authorized_users").Doc(email).Set(context.Background(), map[string]interface{}{
-			"uid":    "",
-			"email":  email,
-			"active": false,
-			"roles":  []string{"user"},
-			"scopes": defaultUserScopes,
+			"uid":           "",
+			"email":         email,
+			"active":        false,
+			"roles":         []string{"user"},
+			"scopes":        defaultUserScopes,
+			"token_version": 0,
 		})
 		if err != nil {
 			log.Fatal(err)
@@ -530,12 +533,68 @@ var revokeScopeCmd = &cobra.Command{
 
 		_, err = client.Collection("authorized_users").Doc(uid).Update(context.Background(), []firestore.Update{
 			{Path: "scopes", Value: firestore.ArrayRemove(scope)},
+			{Path: "token_version", Value: firestore.Increment(1)},
 		})
 		if err != nil {
 			log.Fatalf("Failed to revoke scope: %v", err)
 		}
 
-		fmt.Printf("✓ Revoked scope '%s' from user %s\n", goldStyle.Render(scope), valueStyle.Render(uid))
+		fmt.Printf("✓ Revoked scope '%s' from user %s (token_version bumped)\n", goldStyle.Render(scope), valueStyle.Render(uid))
+	},
+}
+
+var revokeCmd = &cobra.Command{
+	Use:   "revoke <uid-or-email>",
+	Short: "Revoke all active tokens for a user immediately (increments token_version)",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		client, err := getFirestoreClient()
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer func() { _ = client.Close() }()
+
+		uid, err := resolveUID(context.Background(), args[0])
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		_, err = client.Collection("authorized_users").Doc(uid).Update(context.Background(), []firestore.Update{
+			{Path: "token_version", Value: firestore.Increment(1)},
+		})
+		if err != nil {
+			log.Fatalf("Failed to revoke user tokens: %v", err)
+		}
+
+		fmt.Printf("✓ Incremented token_version for user %s (all existing tokens invalidated within ~60s)\n", goldStyle.Render(uid))
+	},
+}
+
+var deactivateCmd = &cobra.Command{
+	Use:   "deactivate <uid-or-email>",
+	Short: "Deactivate a user account and revoke all tokens",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		client, err := getFirestoreClient()
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer func() { _ = client.Close() }()
+
+		uid, err := resolveUID(context.Background(), args[0])
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		_, err = client.Collection("authorized_users").Doc(uid).Update(context.Background(), []firestore.Update{
+			{Path: "active", Value: false},
+			{Path: "token_version", Value: firestore.Increment(1)},
+		})
+		if err != nil {
+			log.Fatalf("Failed to deactivate user: %v", err)
+		}
+
+		fmt.Printf("✓ Deactivated user %s and revoked all tokens\n", goldStyle.Render(uid))
 	},
 }
 
@@ -612,6 +671,7 @@ var tokenCmd = &cobra.Command{
 func generateToken(uid string) (string, error) {
 	key := os.Getenv("JWT_SIGNING_KEY")
 	if key == "" {
+		log.Printf("[Admin] WARNING: JWT_SIGNING_KEY not set; using fallback dev signing key.")
 		key = "temporary-dev-signing-key-mithlond"
 	}
 

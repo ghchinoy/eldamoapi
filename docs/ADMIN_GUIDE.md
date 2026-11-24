@@ -80,15 +80,25 @@ Newly approved users receive the minimal baseline tier. Grant cost-bearing or ad
 ./bin/eldamo-admin grant <UID-or-EMAIL> skill:translate
 ./bin/eldamo-admin grant <UID-or-EMAIL> skill:neologism
 
-# Revoke a scope
+# Revoke a specific scope (increments token_version; effective in <=60s)
 ./bin/eldamo-admin revoke-scope <UID-or-EMAIL> audio:generate
 
 # Grant new scopes to ALL authorized users (idempotent, safe migration helper)
 ./bin/eldamo-admin grant-all skill:name-generate skill:translate skill:neologism
 ```
-*(Changes take effect upon the user's next token refresh or re-authentication.)*
 
-### 5. Generating Handshake Access Tokens (Diagnostics & CI)
+### 5. Immediate Revocation & Account Deactivation
+To immediately invalidate all active tokens for a user (without waiting for the 1-hour JWT expiration):
+```bash
+# Invalidate all active tokens for a user (bumps token_version; effective in <=60s)
+./bin/eldamo-admin revoke <UID-or-EMAIL>
+
+# Deactivate user account entirely and revoke all tokens
+./bin/eldamo-admin deactivate <UID-or-EMAIL>
+```
+*The server employs a bounded 60-second in-memory state cache to preserve sub-millisecond execution latency while ensuring revocations take effect across active sessions within 60 seconds.*
+
+### 6. Generating Handshake Access Tokens (Diagnostics & CI)
 To bypass the browser-based OAuth flow and generate a 1-hour secure JWT access token with full scopes for testing local or remote clients:
 ```bash
 # Using the make target helper

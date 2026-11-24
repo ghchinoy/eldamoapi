@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -626,14 +627,102 @@ func getUser(ctx context.Context, uid string) (*User, error) {
 	return &user, nil
 }
 
-var jwtSigningKey = []byte(getJWTSigningKey())
+var (
+	jwtSigningKey = []byte(getJWTSigningKey())
+	jwtParser     = jwt.NewParser(jwt.WithValidMethods([]string{"HS256"}))
+)
 
 func getJWTSigningKey() string {
 	key := os.Getenv("JWT_SIGNING_KEY")
 	if key == "" {
+		if os.Getenv("K_SERVICE") != "" {
+			log.Fatal("[Auth] FATAL: Running in production (K_SERVICE is set) without JWT_SIGNING_KEY environment variable!")
+		}
+		log.Printf("[Auth] WARNING: JWT_SIGNING_KEY not set. Using insecure fallback dev signing key.")
 		key = "temporary-dev-signing-key-mithlond"
 	}
 	return key
+}
+
+// userCacheEntry caches user active state and token_version for up to userCacheTTL.
+type userCacheEntry struct {
+	active       bool
+	tokenVersion int
+	expiresAt    time.Time
+}
+
+var (
+	userCacheMu  sync.RWMutex
+	userCache    = make(map[string]userCacheEntry)
+	userCacheTTL = 60 * time.Second
+)
+
+// extractTokenVersion parses the 'tv' claim from MapClaims.
+// Missing or non-integer tv claim is treated as version 0 for backward compatibility.
+func extractTokenVersion(claims jwt.MapClaims) int {
+	val, ok := claims["tv"]
+	if !ok {
+		return 0
+	}
+	switch v := val.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	default:
+		return 0
+	}
+}
+
+// validateUserRevocation checks if a user is active and whether their token version
+// has been revoked (e.g. tokenVersion in JWT < tokenVersion in Firestore).
+// It caches the user state in-memory for up to userCacheTTL (60s) to keep active
+// MCP tool execution fast and stateless, while bounding the revocation window to <=60s.
+func validateUserRevocation(ctx context.Context, uid string, tokenVersion int) (bool, string) {
+	if uid == "" {
+		return false, "Missing user identifier in token claims"
+	}
+
+	userCacheMu.RLock()
+	entry, found := userCache[uid]
+	userCacheMu.RUnlock()
+
+	now := time.Now()
+	if !found || now.After(entry.expiresAt) {
+		// In unit tests or standalone dev mode without Firestore initialized, allow valid tokens
+		if firestoreClient == nil {
+			return true, ""
+		}
+
+		// Cache miss or expired — fetch latest from Firestore
+		user, err := getUser(ctx, uid)
+		if err != nil {
+			// Log transient Firestore lookup error and allow cryptographically valid token to proceed
+			log.Printf("[Auth] Warning: Firestore lookup for user %s failed during revocation check: %v", uid, err)
+			return true, ""
+		}
+
+		entry = userCacheEntry{
+			active:       user.Active,
+			tokenVersion: user.TokenVersion,
+			expiresAt:    now.Add(userCacheTTL),
+		}
+
+		userCacheMu.Lock()
+		userCache[uid] = entry
+		userCacheMu.Unlock()
+	}
+
+	if !entry.active {
+		return false, "User account is inactive or revoked"
+	}
+	if tokenVersion < entry.tokenVersion {
+		return false, "Token has been revoked by a security update"
+	}
+
+	return true, ""
 }
 
 // generateJWT generates a signed stateless JWT for the given user, client, type, and expiration.
@@ -643,6 +732,7 @@ func generateJWT(user *User, clientID, issuer string, duration time.Duration, to
 		"client_id": clientID,
 		"scopes":    user.Scopes,
 		"roles":     user.Roles,
+		"tv":        user.TokenVersion,
 		"iss":       issuer,
 		"type":      tokenType,
 		"iat":       time.Now().Unix(),
@@ -831,7 +921,7 @@ func handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Verify signed Refresh Token JWT
-		token, err := jwt.Parse(refreshTokenParam, func(token *jwt.Token) (interface{}, error) {
+		token, err := jwtParser.Parse(refreshTokenParam, func(token *jwt.Token) (interface{}, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 			}
@@ -941,7 +1031,7 @@ func oauthMiddleware(next http.Handler) http.Handler {
 		}
 
 		// 3. Verify and parse signed Access Token JWT
-		token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+		token, err := jwtParser.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 			}
@@ -955,6 +1045,10 @@ func oauthMiddleware(next http.Handler) http.Handler {
 			log.Printf("[Auth] Rejected request %s %s: Invalid or expired token: %v", r.Method, r.URL.Path, err)
 			log.Printf("[Auth] Debug Headers for %s %s: %+v", r.Method, r.URL.Path, r.Header)
 			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("WWW-Authenticate", fmt.Sprintf(
+				`Bearer realm="Mithlond", error="invalid_token", error_description="The provided access token is invalid or expired", resource_metadata="%s/.well-known/oauth-protected-resource"`,
+				requestBaseURL(r),
+			))
 			w.WriteHeader(http.StatusUnauthorized)
 			_ = json.NewEncoder(w).Encode(map[string]string{
 				"error":             "invalid_token",
@@ -967,10 +1061,34 @@ func oauthMiddleware(next http.Handler) http.Handler {
 		if !ok || claims["type"] != "access" {
 			log.Printf("[Auth] Rejected request %s %s: Token claims are invalid", r.Method, r.URL.Path)
 			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("WWW-Authenticate", fmt.Sprintf(
+				`Bearer realm="Mithlond", error="invalid_token", error_description="Invalid token type or claims", resource_metadata="%s/.well-known/oauth-protected-resource"`,
+				requestBaseURL(r),
+			))
 			w.WriteHeader(http.StatusUnauthorized)
 			_ = json.NewEncoder(w).Encode(map[string]string{
 				"error":             "invalid_token",
 				"error_description": "Invalid token type or claims",
+			})
+			return
+		}
+
+		sub, _ := claims["sub"].(string)
+		tokenVersion := extractTokenVersion(claims)
+
+		valid, reason := validateUserRevocation(r.Context(), sub, tokenVersion)
+		if !valid {
+			log.Printf("[Auth] Rejected request %s %s for sub=%s: %s", r.Method, r.URL.Path, sub, reason)
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("WWW-Authenticate", fmt.Sprintf(
+				`Bearer realm="Mithlond", error="invalid_token", error_description="%s", resource_metadata="%s/.well-known/oauth-protected-resource"`,
+				reason,
+				requestBaseURL(r),
+			))
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error":             "invalid_token",
+				"error_description": reason,
 			})
 			return
 		}

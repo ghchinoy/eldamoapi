@@ -6,13 +6,14 @@ import (
 
 // User represents an authorized user in the 'authorized_users' Firestore collection.
 type User struct {
-	UID       string    `firestore:"uid"`
-	Email     string    `firestore:"email"`
-	Active    bool      `firestore:"active"`
-	Roles     []string  `firestore:"roles"`
-	Scopes    []string  `firestore:"scopes"`
-	CreatedAt time.Time `firestore:"created_at"`
-	UpdatedAt time.Time `firestore:"updated_at"`
+	UID          string    `firestore:"uid"`
+	Email        string    `firestore:"email"`
+	Active       bool      `firestore:"active"`
+	Roles        []string  `firestore:"roles"`
+	Scopes       []string  `firestore:"scopes"`
+	TokenVersion int       `firestore:"token_version,omitempty"`
+	CreatedAt    time.Time `firestore:"created_at"`
+	UpdatedAt    time.Time `firestore:"updated_at"`
 }
 
 // HasScope checks if the user has a specific required scope.
