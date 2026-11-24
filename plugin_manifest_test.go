@@ -60,7 +60,7 @@ func TestPluginManifest_Valid(t *testing.T) {
 	// 1. $schema check
 	schemaVal, ok := raw["$schema"].(string)
 	if !ok || schemaVal != expectedPluginSchema {
-		t.Errorf("Expected $schema '%s', got '%v'", expectedPluginSchema, raw["$schema"])
+		t.Errorf("Expected $schema %q, got %q", expectedPluginSchema, raw["$schema"])
 	}
 
 	// 2. Name check
@@ -69,7 +69,7 @@ func TestPluginManifest_Valid(t *testing.T) {
 		t.Fatalf("plugin.json missing required string field 'name'")
 	}
 	if err := validatePluginName(nameVal); err != nil {
-		t.Errorf("plugin name '%s' violates naming constraints: %v", nameVal, err)
+		t.Errorf("plugin name %q violates naming constraints: %v", nameVal, err)
 	}
 
 	// 3. Closed schema properties check (§5.2)
@@ -88,7 +88,7 @@ func TestPluginManifest_Valid(t *testing.T) {
 
 	for key := range raw {
 		if !allowedKeys[key] {
-			t.Errorf("plugin.json contains forbidden top-level field '%s'", key)
+			t.Errorf("plugin.json contains forbidden top-level field %q", key)
 		}
 	}
 
@@ -101,7 +101,7 @@ func TestPluginManifest_Valid(t *testing.T) {
 			authorAllowed := map[string]bool{"name": true, "email": true, "url": true}
 			for k := range authorObj {
 				if !authorAllowed[k] {
-					t.Errorf("'author' object contains unknown key '%s'", k)
+					t.Errorf("'author' object contains unknown key %q", k)
 				}
 			}
 		}
@@ -122,14 +122,14 @@ func TestMcpManifest_Valid(t *testing.T) {
 	// 1. $schema check
 	schemaVal, ok := raw["$schema"].(string)
 	if !ok || schemaVal != expectedMcpSchema {
-		t.Errorf("Expected $schema '%s', got '%v'", expectedMcpSchema, raw["$schema"])
+		t.Errorf("Expected $schema %q, got %q", expectedMcpSchema, raw["$schema"])
 	}
 
 	// 2. Closed top-level properties check
 	allowedKeys := map[string]bool{"$schema": true, "mcpServers": true}
 	for key := range raw {
 		if !allowedKeys[key] {
-			t.Errorf("mcp.json contains forbidden top-level field '%s'", key)
+			t.Errorf("mcp.json contains forbidden top-level field %q", key)
 		}
 	}
 
@@ -142,32 +142,32 @@ func TestMcpManifest_Valid(t *testing.T) {
 	for srvName, srvRaw := range serversRaw {
 		srvMap, ok := srvRaw.(map[string]any)
 		if !ok {
-			t.Errorf("mcpServers entry '%s' must be an object", srvName)
+			t.Errorf("mcpServers entry %q must be an object", srvName)
 			continue
 		}
 
 		typeVal, ok := srvMap["type"].(string)
 		if !ok || (typeVal != "stdio" && typeVal != "streamable-http" && typeVal != "sse") {
-			t.Errorf("Server '%s' has invalid type '%v'", srvName, srvMap["type"])
+			t.Errorf("Server %q has invalid type %q", srvName, srvMap["type"])
 			continue
 		}
 
 		if typeVal == "streamable-http" || typeVal == "sse" {
 			urlVal, ok := srvMap["url"].(string)
 			if !ok || urlVal == "" {
-				t.Errorf("Server '%s' of type '%s' missing required 'url'", srvName, typeVal)
+				t.Errorf("Server %q of type %q missing required 'url'", srvName, typeVal)
 				continue
 			}
 
 			parsedURL, err := url.Parse(urlVal)
 			if err != nil || !parsedURL.IsAbs() {
-				t.Errorf("Server '%s' url '%s' must be a valid absolute URL", srvName, urlVal)
+				t.Errorf("Server %q url %q must be a valid absolute URL", srvName, urlVal)
 			}
 			if parsedURL.User != nil {
-				t.Errorf("Server '%s' url must not contain user credentials", srvName)
+				t.Errorf("Server %q url must not contain user credentials", srvName)
 			}
 			if parsedURL.Fragment != "" {
-				t.Errorf("Server '%s' url must not contain a fragment", srvName)
+				t.Errorf("Server %q url must not contain a fragment", srvName)
 			}
 		}
 	}
@@ -222,7 +222,7 @@ func TestSkillsDiscovery_Valid(t *testing.T) {
 		if name == "" {
 			t.Errorf("skills/%s/SKILL.md missing 'name' in frontmatter", skillDirName)
 		} else if name != skillDirName {
-			t.Errorf("skills/%s/SKILL.md frontmatter name '%s' does not match directory name '%s'", skillDirName, name, skillDirName)
+			t.Errorf("skills/%s/SKILL.md frontmatter name %q does not match directory name %q", skillDirName, name, skillDirName)
 		}
 
 		if description == "" {

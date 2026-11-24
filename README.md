@@ -24,7 +24,7 @@ It features a secure, modern (2026-standard) **OAuth 2.1 Authentication Layer** 
 Get a local Eldamo server running on your machine in under 30 seconds:
 
 ```bash
-# 1. Clone the repository (requires Go 1.25.5+)
+# 1. Clone the repository (requires Go 1.26+)
 git clone https://github.com/ghchinoy/eldamoapi.git
 cd eldamoapi
 

@@ -14,7 +14,7 @@ import (
 )
 
 // makeTestToken signs a token with the specified method, key, and claims.
-func makeTestToken(method jwt.SigningMethod, key interface{}, claims jwt.MapClaims) string {
+func makeTestToken(method jwt.SigningMethod, key any, claims jwt.MapClaims) string {
 	token := jwt.NewWithClaims(method, claims)
 	s, err := token.SignedString(key)
 	if err != nil {
@@ -30,7 +30,7 @@ func TestOAuthMiddleware_SecurityAndAlgorithmPinning(t *testing.T) {
 			t.Error("expected claims in context")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status": "ok",
 			"sub":    claims["sub"],
 		})

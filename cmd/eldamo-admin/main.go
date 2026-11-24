@@ -192,8 +192,8 @@ var listCmd = &cobra.Command{
 			active, _ := data["active"].(bool)
 			email, _ := data["email"].(string)
 			uid, _ := data["uid"].(string)
-			roles, _ := data["roles"].([]interface{})
-			scopes, _ := data["scopes"].([]interface{})
+			roles, _ := data["roles"].([]any)
+			scopes, _ := data["scopes"].([]any)
 
 			statusStr := badgeInactive
 			if active {
@@ -295,7 +295,7 @@ var requestsListCmd = &cobra.Command{
 			status, _ := data["status"].(string)
 			email, _ := data["email"].(string)
 			displayName, _ := data["displayName"].(string)
-			tools, _ := data["tools"].([]interface{})
+			tools, _ := data["tools"].([]any)
 			notes, _ := data["notes"].(string)
 
 			statusStr := badgePending
@@ -377,14 +377,14 @@ var requestsApproveCmd = &cobra.Command{
 		uid := args[0]
 		reqDoc, err := client.Collection("access_requests").Doc(uid).Get(ctx)
 		if err != nil {
-			log.Fatalf("Failed to find access request for UID '%s': %v", uid, err)
+			log.Fatalf("Failed to find access request for UID %q: %v", uid, err)
 		}
 		data := reqDoc.Data()
 		email, _ := data["email"].(string)
 		displayName, _ := data["displayName"].(string)
 
 		// 1. Add to authorized_users with active: true and defaultUserScopes
-		_, err = client.Collection("authorized_users").Doc(uid).Set(ctx, map[string]interface{}{
+		_, err = client.Collection("authorized_users").Doc(uid).Set(ctx, map[string]any{
 			"uid":           uid,
 			"email":         email,
 			"displayName":   displayName,
@@ -427,7 +427,7 @@ var addCmd = &cobra.Command{
 		defer func() { _ = client.Close() }()
 
 		uid, email := args[0], args[1]
-		_, err = client.Collection("authorized_users").Doc(uid).Set(context.Background(), map[string]interface{}{
+		_, err = client.Collection("authorized_users").Doc(uid).Set(context.Background(), map[string]any{
 			"uid":           uid,
 			"email":         email,
 			"active":        true,
@@ -463,7 +463,7 @@ var preRegisterCmd = &cobra.Command{
 		}
 		defer func() { _ = client.Close() }()
 
-		_, err = client.Collection("authorized_users").Doc(email).Set(context.Background(), map[string]interface{}{
+		_, err = client.Collection("authorized_users").Doc(email).Set(context.Background(), map[string]any{
 			"uid":           "",
 			"email":         email,
 			"active":        false,
@@ -611,7 +611,7 @@ var grantAllCmd = &cobra.Command{
 
 		ctx := context.Background()
 
-		unionValues := make([]interface{}, len(args))
+		unionValues := make([]any, len(args))
 		for i, s := range args {
 			unionValues[i] = s
 		}

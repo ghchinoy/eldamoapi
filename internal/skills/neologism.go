@@ -139,7 +139,7 @@ func anchorageContext(concept string, lang string, idx LexiconSearcher) ([]strin
 		if gloss == "" {
 			gloss = root.NGloss
 		}
-		summaries = append(summaries, fmt.Sprintf("'%s' → %s (%s)", kw, root.Word, gloss))
+		summaries = append(summaries, fmt.Sprintf("%q → %s (%s)", kw, root.Word, gloss))
 
 		anchors := idx.GetRootAnchors(root.ID)
 		anchorNames := make([]string, 0, 4)

@@ -255,7 +255,7 @@ func RunNameGenerate(_ context.Context, execCtx *a2asrv.ExecutorContext, deps *D
 			best := BestRoot(candidates)
 			if best == nil {
 				msg := a2a.NewMessageForTask(a2a.MessageRoleAgent, execCtx,
-					a2a.NewTextPart(fmt.Sprintf("No %s root for '%s'; skipping.", req.langName, concept)))
+					a2a.NewTextPart(fmt.Sprintf("No %s root for %q; skipping.", req.langName, concept)))
 				if !yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateWorking, msg), nil) {
 					return
 				}
@@ -267,7 +267,7 @@ func RunNameGenerate(_ context.Context, execCtx *a2asrv.ExecutorContext, deps *D
 				gloss = best.NGloss
 			}
 			msg := a2a.NewMessageForTask(a2a.MessageRoleAgent, execCtx,
-				a2a.NewTextPart(fmt.Sprintf("Found '%s' (%s) for '%s'", best.Word, gloss, concept)))
+				a2a.NewTextPart(fmt.Sprintf("Found %q (%s) for %q", best.Word, gloss, concept)))
 			if !yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateWorking, msg), nil) {
 				return
 			}

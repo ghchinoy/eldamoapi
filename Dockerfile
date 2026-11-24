@@ -1,5 +1,5 @@
 # Stage 1: Build the statically linked Go binary
-FROM golang:1.25.5-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 # Set the working directory inside the container
 WORKDIR /app

@@ -125,27 +125,27 @@ func TestLocalLLMConfigHelpers(t *testing.T) {
 			t.Error("expected localLLMEnabled() to be true when set")
 		}
 		if got := localLLMBaseURL(); got != "http://localhost:8080" {
-			t.Errorf("localLLMBaseURL() = %q", got)
+			t.Errorf("localLLMBaseURL() = %q, want %q", got, "http://localhost:8080")
 		}
 	})
 	t.Run("model name defaults", func(t *testing.T) {
 		t.Setenv("LOCAL_LLM_MODEL", "")
 		if got := localLLMModelName(); got != "local-model" {
-			t.Errorf("localLLMModelName() default = %q, want local-model", got)
+			t.Errorf("localLLMModelName() default = %q, want %q", got, "local-model")
 		}
 		t.Setenv("LOCAL_LLM_MODEL", "eldamo-gemma-q4_k_m")
 		if got := localLLMModelName(); got != "eldamo-gemma-q4_k_m" {
-			t.Errorf("localLLMModelName() = %q", got)
+			t.Errorf("localLLMModelName() = %q, want %q", got, "eldamo-gemma-q4_k_m")
 		}
 	})
 	t.Run("runtime label defaults", func(t *testing.T) {
 		t.Setenv("LOCAL_LLM_RUNTIME", "")
 		if got := localLLMRuntime(); got != "local" {
-			t.Errorf("localLLMRuntime() default = %q, want local", got)
+			t.Errorf("localLLMRuntime() default = %q, want %q", got, "local")
 		}
 		t.Setenv("LOCAL_LLM_RUNTIME", "mlx")
 		if got := localLLMRuntime(); got != "mlx" {
-			t.Errorf("localLLMRuntime() = %q", got)
+			t.Errorf("localLLMRuntime() = %q, want %q", got, "mlx")
 		}
 	})
 	t.Run("max tokens defaults and parses override", func(t *testing.T) {

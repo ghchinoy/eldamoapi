@@ -64,13 +64,13 @@ func TestIntegrationServer(t *testing.T) {
 	}
 	for _, tool := range toolsResult.Tools {
 		if tool.Title == "" {
-			t.Errorf("Tool '%s' missing Title", tool.Name)
+			t.Errorf("Tool %q missing Title", tool.Name)
 		}
 		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
-			t.Errorf("Tool '%s' expected ReadOnlyHint = true", tool.Name)
+			t.Errorf("Tool %q expected ReadOnlyHint = true", tool.Name)
 		}
 		if tool.Name != "render_elvish_audio" && tool.OutputSchema == nil {
-			t.Errorf("Read tool '%s' expected non-nil OutputSchema", tool.Name)
+			t.Errorf("Read tool %q expected non-nil OutputSchema", tool.Name)
 		}
 	}
 
@@ -167,7 +167,7 @@ func TestIntegrationServer(t *testing.T) {
 	}
 	textDetails := resDetails.Content[0].(*mcp.TextContent).Text
 	if !strings.Contains(textDetails, testWord.Word) {
-		t.Errorf("Expected word details to contain word '%s', got: %s", testWord.Word, textDetails)
+		t.Errorf("Expected word details to contain word %q, got: %s", testWord.Word, textDetails)
 	}
 
 	// 6. Test 'get_derivations'
@@ -363,7 +363,7 @@ func TestOAuthDiscovery(t *testing.T) {
 
 	contentType := w.Header().Get("Content-Type")
 	if contentType != "application/json" {
-		t.Errorf("Expected Content-Type 'application/json', got '%s'", contentType)
+		t.Errorf("Expected Content-Type %q, got %q", "application/json", contentType)
 	}
 
 	// Verify JSON structure and dynamic Host inclusion
@@ -378,24 +378,24 @@ func TestOAuthDiscovery(t *testing.T) {
 
 	expectedIssuer := "https://www.mithlond.com"
 	if resp["issuer"] != expectedIssuer {
-		t.Errorf("Expected issuer '%s', got '%s'", expectedIssuer, resp["issuer"])
+		t.Errorf("Expected issuer %q, got %q", expectedIssuer, resp["issuer"])
 	}
 
 	expectedAuthEndpoint := "https://www.mithlond.com/mcp-auth"
 	if resp["authorization_endpoint"] != expectedAuthEndpoint {
-		t.Errorf("Expected authorization_endpoint '%s', got '%s'", expectedAuthEndpoint, resp["authorization_endpoint"])
+		t.Errorf("Expected authorization_endpoint %q, got %q", expectedAuthEndpoint, resp["authorization_endpoint"])
 	}
 
 	expectedTokenEndpoint := "https://www.mithlond.com/api/oauth/token"
 	if resp["token_endpoint"] != expectedTokenEndpoint {
-		t.Errorf("Expected token_endpoint '%s', got '%s'", expectedTokenEndpoint, resp["token_endpoint"])
+		t.Errorf("Expected token_endpoint %q, got %q", expectedTokenEndpoint, resp["token_endpoint"])
 	}
 
 	// RFC 7591 DCR must be advertised alongside CIMD so DCR-only clients (Spark)
 	// can self-register while CIMD clients keep working.
 	expectedRegEndpoint := "https://www.mithlond.com/api/oauth/register"
 	if resp["registration_endpoint"] != expectedRegEndpoint {
-		t.Errorf("Expected registration_endpoint '%s', got '%s'", expectedRegEndpoint, resp["registration_endpoint"])
+		t.Errorf("Expected registration_endpoint %q, got %q", expectedRegEndpoint, resp["registration_endpoint"])
 	}
 	if resp["client_id_metadata_document_supported"] != true {
 		t.Errorf("Expected CIMD support to remain advertised alongside DCR")
@@ -417,7 +417,7 @@ func TestProtectedResourceMetadata(t *testing.T) {
 			t.Fatalf("Expected status code 200, got %d", w.Code)
 		}
 		if ct := w.Header().Get("Content-Type"); ct != "application/json" {
-			t.Errorf("Expected Content-Type 'application/json', got '%s'", ct)
+			t.Errorf("Expected Content-Type %q, got %q", "application/json", ct)
 		}
 		var resp map[string]any
 		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
@@ -545,7 +545,7 @@ func TestCIMDParsing(t *testing.T) {
 	}
 
 	if meta.ClientName != "Test AI Client" {
-		t.Errorf("Expected ClientName 'Test AI Client', got '%s'", meta.ClientName)
+		t.Errorf("Expected ClientName %q, got %q", "Test AI Client", meta.ClientName)
 	}
 }
 
@@ -566,7 +566,7 @@ func TestJWTGenerationAndValidation(t *testing.T) {
 	}
 
 	// 2. Parse and validate
-	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (any, error) {
 		return jwtSigningKey, nil
 	})
 	if err != nil {
@@ -583,13 +583,13 @@ func TestJWTGenerationAndValidation(t *testing.T) {
 	}
 
 	if claims["sub"] != userUID {
-		t.Errorf("Expected sub '%s', got '%v'", userUID, claims["sub"])
+		t.Errorf("Expected sub %q, got %q", userUID, claims["sub"])
 	}
 	if claims["client_id"] != clientID {
-		t.Errorf("Expected client_id '%s', got '%v'", clientID, claims["client_id"])
+		t.Errorf("Expected client_id %q, got %q", clientID, claims["client_id"])
 	}
 	if claims["type"] != "access" {
-		t.Errorf("Expected type 'access', got '%v'", claims["type"])
+		t.Errorf("Expected type %q, got %q", "access", claims["type"])
 	}
 }
 

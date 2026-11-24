@@ -33,7 +33,7 @@ func TestEstimateCostUSD(t *testing.T) {
 		pricing := knownPricing["gemini-3.1-flash-lite"]
 		want := pricing.PromptPerMillionUSD + pricing.CompletionPerMillionUSD
 		if got := EstimateCostUSD(usage); got != want {
-			t.Errorf("EstimateCostUSD() = %v, want %v", got, want)
+			t.Errorf("EstimateCostUSD(%+v) = %v, want %v", usage, got, want)
 		}
 	})
 

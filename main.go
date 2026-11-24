@@ -78,7 +78,7 @@ func renderElvishAudioHandler(ctx context.Context, req *mcp.CallToolRequest, arg
 		speed = 0.8 // Default to slightly slower
 	}
 
-	log.Printf("[Tool Call] render_elvish_audio: text='%s' (voice='%s', speed=%.1f)", args.Text, voice, speed)
+	log.Printf("[Tool Call] render_elvish_audio: text=%q (voice=%q, speed=%.1f)", args.Text, voice, speed)
 
 	ttsURL := os.Getenv("ELVISH_TTS_URL")
 	if ttsURL == "" {
@@ -91,7 +91,7 @@ func renderElvishAudioHandler(ctx context.Context, req *mcp.CallToolRequest, arg
 		}, nil, nil
 	}
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"text":  args.Text,
 		"voice": voice,
 		"speed": speed,
@@ -120,8 +120,8 @@ func renderElvishAudioHandler(ctx context.Context, req *mcp.CallToolRequest, arg
 	}
 
 	fullAudioURL := ttsURL + ttsResp.AudioURL
-	log.Printf("[Tool Result] render_elvish_audio: synthesized for '%s' (phonemes='%s', audio_url='%s')", args.Text, ttsResp.Phonemes, fullAudioURL)
-	msg := fmt.Sprintf("Synthesized pronunciation for '%s' (speed: %.1f).\n\nPhonemes: %s\nAudio URL: %s", args.Text, speed, ttsResp.Phonemes, fullAudioURL)
+	log.Printf("[Tool Result] render_elvish_audio: synthesized for %q (phonemes=%q, audio_url=%q)", args.Text, ttsResp.Phonemes, fullAudioURL)
+	msg := fmt.Sprintf("Synthesized pronunciation for %q (speed: %.1f).\n\nPhonemes: %s\nAudio URL: %s", args.Text, speed, ttsResp.Phonemes, fullAudioURL)
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: msg},
@@ -134,20 +134,20 @@ func enquireLexiconHandler(ctx context.Context, req *mcp.CallToolRequest, args E
 	
 	var filters []string
 	if args.Language != "" {
-		filters = append(filters, fmt.Sprintf("language='%s'", args.Language))
+		filters = append(filters, fmt.Sprintf("language=%q", args.Language))
 	}
 	if args.Speech != "" {
-		filters = append(filters, fmt.Sprintf("speech='%s'", args.Speech))
+		filters = append(filters, fmt.Sprintf("speech=%q", args.Speech))
 	}
 	if args.Category != "" {
-		filters = append(filters, fmt.Sprintf("category='%s'", args.Category))
+		filters = append(filters, fmt.Sprintf("category=%q", args.Category))
 	}
 	filterStr := "none"
 	if len(filters) > 0 {
 		filterStr = strings.Join(filters, ", ")
 	}
 	
-	log.Printf("[Tool Call] enquire_lexicon: query='%s' (filters: %s)", query, filterStr)
+	log.Printf("[Tool Call] enquire_lexicon: query=%q (filters: %s)", query, filterStr)
 	if query == "" {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
@@ -181,7 +181,7 @@ func enquireLexiconHandler(ctx context.Context, req *mcp.CallToolRequest, args E
 	if len(combined) == 0 {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
-				&mcp.TextContent{Text: fmt.Sprintf("No matches found for query '%s' with the specified filters.", query)},
+				&mcp.TextContent{Text: fmt.Sprintf("No matches found for query %q with the specified filters.", query)},
 			},
 		}, nil, nil
 	}
@@ -198,7 +198,7 @@ func enquireLexiconHandler(ctx context.Context, req *mcp.CallToolRequest, args E
 		return nil, nil, fmt.Errorf("failed to marshal search results: %w", err)
 	}
 
-	log.Printf("[Tool Result] enquire_lexicon: found %d matches (returned top %d) for query='%s'", len(combined), limit, query)
+	log.Printf("[Tool Result] enquire_lexicon: found %d matches (returned top %d) for query=%q", len(combined), limit, query)
 	msg := fmt.Sprintf("Found %d matches (showing top %d):\n\n```json\n%s\n```", len(combined), limit, string(resBytes))
 	out := &EnquireLexiconResult{
 		Total:   len(combined),
@@ -214,7 +214,7 @@ func enquireLexiconHandler(ctx context.Context, req *mcp.CallToolRequest, args E
 
 func getWordDetailsHandler(ctx context.Context, req *mcp.CallToolRequest, args GetWordDetailsArgs) (*mcp.CallToolResult, *GetWordDetailsResult, error) {
 	id := strings.TrimSpace(args.ID)
-	log.Printf("[Tool Call] get_word_details: id='%s'", id)
+	log.Printf("[Tool Call] get_word_details: id=%q", id)
 	if id == "" {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
@@ -226,10 +226,10 @@ func getWordDetailsHandler(ctx context.Context, req *mcp.CallToolRequest, args G
 
 	word, found := lexiconIndex.GetWord(id)
 	if !found {
-		log.Printf("[Tool Result] get_word_details: word ID '%s' not found", id)
+		log.Printf("[Tool Result] get_word_details: word ID %q not found", id)
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
-				&mcp.TextContent{Text: fmt.Sprintf("Word with ID '%s' not found.", id)},
+				&mcp.TextContent{Text: fmt.Sprintf("Word with ID %q not found.", id)},
 			},
 		}, nil, nil
 	}
@@ -239,8 +239,8 @@ func getWordDetailsHandler(ctx context.Context, req *mcp.CallToolRequest, args G
 		return nil, nil, fmt.Errorf("failed to marshal word details: %w", err)
 	}
 
-	log.Printf("[Tool Result] get_word_details: found details for word ID '%s'", id)
-	msg := fmt.Sprintf("Details for word ID '%s':\n\n```json\n%s\n```", id, string(resBytes))
+	log.Printf("[Tool Result] get_word_details: found details for word ID %q", id)
+	msg := fmt.Sprintf("Details for word ID %q:\n\n```json\n%s\n```", id, string(resBytes))
 	out := &GetWordDetailsResult{Word: word}
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
@@ -251,7 +251,7 @@ func getWordDetailsHandler(ctx context.Context, req *mcp.CallToolRequest, args G
 
 func getDerivationsHandler(ctx context.Context, req *mcp.CallToolRequest, args GetDerivationsArgs) (*mcp.CallToolResult, *GetDerivationsResult, error) {
 	id := strings.TrimSpace(args.ID)
-	log.Printf("[Tool Call] get_derivations: id='%s', direction='%s'", id, args.Direction)
+	log.Printf("[Tool Call] get_derivations: id=%q, direction=%q", id, args.Direction)
 	if id == "" {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
@@ -268,10 +268,10 @@ func getDerivationsHandler(ctx context.Context, req *mcp.CallToolRequest, args G
 
 	derivs := lexiconIndex.GetDerivations(id, dir)
 	if len(derivs) == 0 {
-		log.Printf("[Tool Result] get_derivations: found 0 %s for word ID '%s'", dir, id)
+		log.Printf("[Tool Result] get_derivations: found 0 %s for word ID %q", dir, id)
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
-				&mcp.TextContent{Text: fmt.Sprintf("No %s found for word ID '%s'.", dir, id)},
+				&mcp.TextContent{Text: fmt.Sprintf("No %s found for word ID %q.", dir, id)},
 			},
 		}, nil, nil
 	}
@@ -281,8 +281,8 @@ func getDerivationsHandler(ctx context.Context, req *mcp.CallToolRequest, args G
 		return nil, nil, fmt.Errorf("failed to marshal derivations: %w", err)
 	}
 
-	log.Printf("[Tool Result] get_derivations: found %d %s for word ID '%s'", len(derivs), dir, id)
-	msg := fmt.Sprintf("Found %d %s for word ID '%s':\n\n```json\n%s\n```", len(derivs), dir, id, string(resBytes))
+	log.Printf("[Tool Result] get_derivations: found %d %s for word ID %q", len(derivs), dir, id)
+	msg := fmt.Sprintf("Found %d %s for word ID %q:\n\n```json\n%s\n```", len(derivs), dir, id, string(resBytes))
 	out := &GetDerivationsResult{
 		ID:        id,
 		Direction: dir,
@@ -298,7 +298,7 @@ func getDerivationsHandler(ctx context.Context, req *mcp.CallToolRequest, args G
 
 func getRootAnchorsHandler(ctx context.Context, req *mcp.CallToolRequest, args GetRootAnchorsArgs) (*mcp.CallToolResult, *GetRootAnchorsResult, error) {
 	id := strings.TrimSpace(args.ID)
-	log.Printf("[Tool Call] get_root_anchors: id='%s'", id)
+	log.Printf("[Tool Call] get_root_anchors: id=%q", id)
 	if id == "" {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
@@ -310,10 +310,10 @@ func getRootAnchorsHandler(ctx context.Context, req *mcp.CallToolRequest, args G
 
 	anchors := lexiconIndex.GetRootAnchors(id)
 	if len(anchors) == 0 {
-		log.Printf("[Tool Result] get_root_anchors: found 0 anchors for word ID '%s'", id)
+		log.Printf("[Tool Result] get_root_anchors: found 0 anchors for word ID %q", id)
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
-				&mcp.TextContent{Text: fmt.Sprintf("No proper-noun or place name anchors found derived from ID '%s'.", id)},
+				&mcp.TextContent{Text: fmt.Sprintf("No proper-noun or place name anchors found derived from ID %q.", id)},
 			},
 		}, nil, nil
 	}
@@ -323,8 +323,8 @@ func getRootAnchorsHandler(ctx context.Context, req *mcp.CallToolRequest, args G
 		return nil, nil, fmt.Errorf("failed to marshal root anchors: %w", err)
 	}
 
-	log.Printf("[Tool Result] get_root_anchors: found %d anchors for word ID '%s'", len(anchors), id)
-	msg := fmt.Sprintf("Found %d character/place name anchors derived from ID '%s':\n\n```json\n%s\n```", len(anchors), id, string(resBytes))
+	log.Printf("[Tool Result] get_root_anchors: found %d anchors for word ID %q", len(anchors), id)
+	msg := fmt.Sprintf("Found %d character/place name anchors derived from ID %q:\n\n```json\n%s\n```", len(anchors), id, string(resBytes))
 	out := &GetRootAnchorsResult{
 		ID:      id,
 		Count:   len(anchors),
@@ -724,7 +724,7 @@ func main() {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims, ok := ClaimsFromContext(r.Context())
 			if !ok || !authorizeScopes(claims, requiredScope) {
-				log.Printf("[Auth] Denied scope '%s' for %s %s", requiredScope, r.Method, r.URL.Path)
+				log.Printf("[Auth] Denied scope %q for %s %s", requiredScope, r.Method, r.URL.Path)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
 				_ = json.NewEncoder(w).Encode(map[string]string{

@@ -53,9 +53,9 @@ func BaseURLFromContext(ctx context.Context) string {
 }
 
 // scopesSlice extracts the "scopes" claim as a []string. jwt-go stores JSON
-// arrays as []interface{} after parsing, so we convert here.
+// arrays as []any after parsing, so we convert here.
 func scopesSlice(claims jwt.MapClaims) []string {
-	raw, _ := claims["scopes"].([]interface{})
+	raw, _ := claims["scopes"].([]any)
 	out := make([]string, 0, len(raw))
 	for _, s := range raw {
 		if str, ok := s.(string); ok {
@@ -70,7 +70,7 @@ func scopesSlice(claims jwt.MapClaims) []string {
 var bypassClaims = jwt.MapClaims{
 	"sub":  "bypass-user",
 	"type": "access",
-	"scopes": []interface{}{
+	"scopes": []any{
 		"lexicon:read", "audio:generate",
 		"agent:invoke", "skill:name-generate", "skill:translate", "skill:neologism",
 	},
@@ -112,7 +112,7 @@ func initFirebase() {
 		log.Fatalf("Failed to initialize Firestore Client: %v", err)
 	}
 
-	log.Printf("Successfully initialized Firebase Auth and Firestore database '%s' on project '%s'.", databaseID, projectID)
+	log.Printf("Successfully initialized Firebase Auth and Firestore database %q on project %q.", databaseID, projectID)
 }
 
 var allowLocalIPs = false
@@ -377,7 +377,7 @@ func handleClientRegistration(w http.ResponseWriter, r *http.Request) {
 
 	// Persist so the authorize flow can later validate redirect_uris.
 	if firestoreClient != nil {
-		_, err = firestoreClient.Collection(registeredClientsCollection).Doc(reg.ClientID).Set(r.Context(), map[string]interface{}{
+		_, err = firestoreClient.Collection(registeredClientsCollection).Doc(reg.ClientID).Set(r.Context(), map[string]any{
 			"client_id":                  reg.ClientID,
 			"client_name":                reg.ClientName,
 			"redirect_uris":              reg.RedirectURIs,
@@ -433,7 +433,7 @@ func getRegisteredClient(ctx context.Context, clientID string) (*ClientIDMetadat
 	data := doc.Data()
 	meta := &ClientIDMetadata{ClientID: clientID}
 	meta.ClientName, _ = data["client_name"].(string)
-	if raw, ok := data["redirect_uris"].([]interface{}); ok {
+	if raw, ok := data["redirect_uris"].([]any); ok {
 		for _, u := range raw {
 			if s, ok := u.(string); ok {
 				meta.RedirectURIs = append(meta.RedirectURIs, s)
@@ -528,22 +528,22 @@ func handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 					activated.UID = decodedToken.UID
 					activated.Active = true
 					user, err = &activated, nil
-					log.Printf("[OAuth] Pre-registered user '%s' (%s) activated on first login", decodedToken.UID, activated.Email)
+					log.Printf("[OAuth] Pre-registered user %q (%s) activated on first login", decodedToken.UID, activated.Email)
 				}
 			} else {
-				log.Printf("[OAuth] Failed to activate pre-registered user '%s': %v", decodedToken.Claims["email"], uErr)
+				log.Printf("[OAuth] Failed to activate pre-registered user %q: %v", decodedToken.Claims["email"], uErr)
 			}
 		}
 	}
 
 	if err != nil || !user.Active {
-		log.Printf("[OAuth] User '%s' not authorized or inactive", decodedToken.UID)
+		log.Printf("[OAuth] User %q not authorized or inactive", decodedToken.UID)
 		http.Error(w, "User not authorized", http.StatusForbidden)
 		return
 	}
 
 	userEmail, _ := decodedToken.Claims["email"].(string)
-	log.Printf("[OAuth] Authenticated session for user '%s' (%s)", decodedToken.UID, userEmail)
+	log.Printf("[OAuth] Authenticated session for user %q (%s)", decodedToken.UID, userEmail)
 
 	// 2. Validate Client Identity and Metadata. resolveClient dispatches on the
 	// client_id shape: CIMD (client-id-as-URL) or a DCR-registered client_id.
@@ -563,7 +563,7 @@ func handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !isRedirectAllowed {
-		log.Printf("[OAuth] Redirect URI '%s' not authorized for client '%s'", payload.RedirectURI, payload.ClientID)
+		log.Printf("[OAuth] Redirect URI %q not authorized for client %q", payload.RedirectURI, payload.ClientID)
 		http.Error(w, "Unauthorized redirect URI", http.StatusForbidden)
 		return
 	}
@@ -573,7 +573,7 @@ func handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	// 5. Store temporary code mapping to Firestore (expires in 5 minutes)
 	expiresAt := time.Now().Add(5 * time.Minute)
-	_, err = firestoreClient.Collection("mcp_auth_codes").Doc(authCode).Set(r.Context(), map[string]interface{}{
+	_, err = firestoreClient.Collection("mcp_auth_codes").Doc(authCode).Set(r.Context(), map[string]any{
 		"client_id":      payload.ClientID,
 		"user_uid":       decodedToken.UID,
 		"redirect_uri":   payload.RedirectURI,
@@ -601,7 +601,7 @@ func generateRandomString(n int) string {
 
 // authorizeScopes is a simple helper to check if a required scope is present in the token's claims.
 func authorizeScopes(claims jwt.MapClaims, requiredScope string) bool {
-	scopes, ok := claims["scopes"].([]interface{})
+	scopes, ok := claims["scopes"].([]any)
 	if !ok {
 		return false
 	}
@@ -921,7 +921,7 @@ func handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Verify signed Refresh Token JWT
-		token, err := jwtParser.Parse(refreshTokenParam, func(token *jwt.Token) (interface{}, error) {
+		token, err := jwtParser.Parse(refreshTokenParam, func(token *jwt.Token) (any, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 			}
@@ -1031,7 +1031,7 @@ func oauthMiddleware(next http.Handler) http.Handler {
 		}
 
 		// 3. Verify and parse signed Access Token JWT
-		token, err := jwtParser.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+		token, err := jwtParser.Parse(tokenStr, func(token *jwt.Token) (any, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 			}

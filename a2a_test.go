@@ -201,10 +201,20 @@ func TestAgentCardSecuritySchemes(t *testing.T) {
 		if !ok || len(reqs) == 0 {
 			t.Fatal("missing or empty securityRequirements")
 		}
-		// Each requirement is {"schemes": {"mithlond-oauth": [...]}}
+		// In a2a-go v2.9.0, SecuritySchemeScopes marshals as {"list": ["agent:invoke"]}
+		// or as a raw string slice depending on serializer.
 		req0 := reqs[0].(map[string]any)
 		inner := req0["schemes"].(map[string]any)
-		scopeList, _ := inner["mithlond-oauth"].([]any)
+		schemeVal := inner["mithlond-oauth"]
+
+		var scopeList []any
+		switch v := schemeVal.(type) {
+		case map[string]any:
+			scopeList, _ = v["list"].([]any)
+		case []any:
+			scopeList = v
+		}
+
 		found := false
 		for _, s := range scopeList {
 			if s == "agent:invoke" {
@@ -235,7 +245,16 @@ func TestAgentCardSecuritySchemes(t *testing.T) {
 		}
 		sr0 := skillReqs[0].(map[string]any)
 		inner := sr0["schemes"].(map[string]any)
-		scopeList, _ := inner["mithlond-oauth"].([]any)
+		schemeVal := inner["mithlond-oauth"]
+
+		var scopeList []any
+		switch v := schemeVal.(type) {
+		case map[string]any:
+			scopeList, _ = v["list"].([]any)
+		case []any:
+			scopeList = v
+		}
+
 		found := false
 		for _, s := range scopeList {
 			if s == "skill:name-generate" {
