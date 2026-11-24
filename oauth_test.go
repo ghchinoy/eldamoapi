@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -333,6 +335,73 @@ func TestOAuthMiddleware_TokenVersionRevocation(t *testing.T) {
 		}
 		if !strings.Contains(w.Body.String(), "inactive or revoked") {
 			t.Errorf("expected inactive error description in response, got: %s", w.Body.String())
+		}
+	})
+}
+
+func TestHandleTokenExchange_RefreshTokenRevocation(t *testing.T) {
+	origLookup := lookupUser
+	t.Cleanup(func() { lookupUser = origLookup })
+
+	lookupUser = func(_ context.Context, uid string) (*User, error) {
+		return &User{
+			UID:          uid,
+			Active:       true,
+			Roles:        []string{"user"},
+			Scopes:       []string{"lexicon:read"},
+			TokenVersion: 2,
+		}, nil
+	}
+
+	postRefresh := func(refreshToken string) *httptest.ResponseRecorder {
+		form := url.Values{
+			"grant_type":    {"refresh_token"},
+			"refresh_token": {refreshToken},
+		}
+		req := httptest.NewRequest(http.MethodPost, "/api/oauth/token", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		handleTokenExchange(w, req)
+		return w
+	}
+
+	t.Run("revoked refresh token with stale tv is rejected", func(t *testing.T) {
+		staleRefresh := makeTestToken(jwt.SigningMethodHS256, jwtSigningKey, jwt.MapClaims{
+			"sub":       "alice",
+			"client_id": "mcp-client-test",
+			"type":      "refresh",
+			"tv":        1, // < user.TokenVersion (2)
+			"exp":       time.Now().Add(24 * time.Hour).Unix(),
+		})
+
+		w := postRefresh(staleRefresh)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("handleTokenExchange(refresh tv=1 < user tv=2) = %d, want 400 (body: %s)", w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), "revoked") {
+			t.Errorf("handleTokenExchange(refresh tv=1) body = %q, want substring %q", w.Body.String(), "revoked")
+		}
+	})
+
+	t.Run("current refresh token with matching tv rotates cleanly", func(t *testing.T) {
+		currentRefresh := makeTestToken(jwt.SigningMethodHS256, jwtSigningKey, jwt.MapClaims{
+			"sub":       "alice",
+			"client_id": "mcp-client-test",
+			"type":      "refresh",
+			"tv":        2,
+			"exp":       time.Now().Add(24 * time.Hour).Unix(),
+		})
+
+		w := postRefresh(currentRefresh)
+		if w.Code != http.StatusOK {
+			t.Fatalf("handleTokenExchange(refresh tv=2 == user tv=2) = %d, want 200 (body: %s)", w.Code, w.Body.String())
+		}
+		var resp TokenResponse
+		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+			t.Fatalf("decoding TokenResponse failed: %v", err)
+		}
+		if resp.AccessToken == "" || resp.RefreshToken == "" {
+			t.Errorf("handleTokenExchange(refresh tv=2) returned empty tokens: %+v", resp)
 		}
 	})
 }

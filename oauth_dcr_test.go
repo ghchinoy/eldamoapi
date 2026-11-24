@@ -75,6 +75,9 @@ func TestBuildClientRegistration(t *testing.T) {
 // TestHandleClientRegistration exercises the HTTP handler. firestoreClient is nil
 // under test, so the handler skips persistence and still returns a registration.
 func TestHandleClientRegistration(t *testing.T) {
+	dcrRateLimiter.reset()
+	t.Cleanup(dcrRateLimiter.reset)
+
 	t.Run("valid registration returns 201 and no secret", func(t *testing.T) {
 		body := `{"redirect_uris":["https://spark.example/callback"],"client_name":"Spark"}`
 		req := httptest.NewRequest("POST", "/api/oauth/register", strings.NewReader(body))
@@ -115,6 +118,44 @@ func TestHandleClientRegistration(t *testing.T) {
 		handleClientRegistration(w, req)
 		if w.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("expected 405, got %d", w.Code)
+		}
+	})
+
+	t.Run("per-IP rate limit rejects excess registrations with 429", func(t *testing.T) {
+		dcrRateLimiter.reset()
+		body := `{"redirect_uris":["https://spark.example/callback"],"client_name":"Scanner"}`
+		for i := range dcrRateLimitMax {
+			req := httptest.NewRequest(http.MethodPost, "/api/oauth/register", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Forwarded-For", "203.0.113.42, 10.0.0.1")
+			w := httptest.NewRecorder()
+			handleClientRegistration(w, req)
+			if w.Code != http.StatusCreated {
+				t.Fatalf("handleClientRegistration(attempt %d/%d) = %d, want 201", i+1, dcrRateLimitMax, w.Code)
+			}
+		}
+
+		// Next attempt from the same IP is rate-limited.
+		reqBlocked := httptest.NewRequest(http.MethodPost, "/api/oauth/register", strings.NewReader(body))
+		reqBlocked.Header.Set("Content-Type", "application/json")
+		reqBlocked.Header.Set("X-Forwarded-For", "203.0.113.42")
+		wBlocked := httptest.NewRecorder()
+		handleClientRegistration(wBlocked, reqBlocked)
+		if wBlocked.Code != http.StatusTooManyRequests {
+			t.Fatalf("handleClientRegistration(over limit) = %d, want 429 (body: %s)", wBlocked.Code, wBlocked.Body.String())
+		}
+		if wBlocked.Header().Get("Retry-After") == "" {
+			t.Error("handleClientRegistration(429) missing Retry-After header")
+		}
+
+		// A distinct IP is still allowed.
+		reqOther := httptest.NewRequest(http.MethodPost, "/api/oauth/register", strings.NewReader(body))
+		reqOther.Header.Set("Content-Type", "application/json")
+		reqOther.Header.Set("X-Forwarded-For", "198.51.100.7")
+		wOther := httptest.NewRecorder()
+		handleClientRegistration(wOther, reqOther)
+		if wOther.Code != http.StatusCreated {
+			t.Fatalf("handleClientRegistration(distinct IP) = %d, want 201", wOther.Code)
 		}
 	})
 }

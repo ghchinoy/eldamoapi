@@ -342,9 +342,86 @@ func buildClientRegistration(req *ClientRegistrationRequest) (*ClientRegistratio
 // handleClientRegistration implements RFC 7591 Dynamic Client Registration for
 // public/PKCE clients (e.g. Gemini Spark). It issues an opaque client_id with no
 // secret and persists the client's redirect_uris so the authorize flow can
+const (
+	dcrRateLimitWindow = time.Hour
+	dcrRateLimitMax    = 10
+	dcrClientTTL       = 90 * 24 * time.Hour
+)
+
+// ipRateLimiter tracks a bounded per-IP sliding window for unauthenticated
+// endpoints like RFC 7591 Dynamic Client Registration.
+type ipRateLimiter struct {
+	mu     sync.Mutex
+	hits   map[string][]time.Time
+	window time.Duration
+	limit  int
+}
+
+func newIPRateLimiter(window time.Duration, limit int) *ipRateLimiter {
+	return &ipRateLimiter{
+		hits:   make(map[string][]time.Time),
+		window: window,
+		limit:  limit,
+	}
+}
+
+func (l *ipRateLimiter) allow(ip string, now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	cutoff := now.Add(-l.window)
+
+	// Periodically sweep expired keys to keep map size bounded.
+	if len(l.hits) > 1000 {
+		for k, timestamps := range l.hits {
+			if len(timestamps) == 0 || !timestamps[len(timestamps)-1].After(cutoff) {
+				delete(l.hits, k)
+			}
+		}
+	}
+
+	recent := l.hits[ip][:0]
+	for _, ts := range l.hits[ip] {
+		if ts.After(cutoff) {
+			recent = append(recent, ts)
+		}
+	}
+	if len(recent) >= l.limit {
+		l.hits[ip] = recent
+		return false
+	}
+	l.hits[ip] = append(recent, now)
+	return true
+}
+
+func (l *ipRateLimiter) reset() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.hits = make(map[string][]time.Time)
+}
+
+var (
+	dcrRateLimiter = newIPRateLimiter(dcrRateLimitWindow, dcrRateLimitMax)
+	lookupUser     = getUser
+)
+
+func clientIPFromRequest(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		first, _, _ := strings.Cut(xff, ",")
+		if ip := strings.TrimSpace(first); ip != "" {
+			return ip
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil && host != "" {
+		return host
+	}
+	return r.RemoteAddr
+}
+
 // validate them — the DCR analogue of fetching a CIMD document. Registration is
-// open (unauthenticated) per RFC 7591; abuse is bounded by strict redirect_uri
-// validation and the public-client-only policy.
+// open (unauthenticated) per RFC 7591; abuse is bounded by per-IP rate limiting,
+// strict redirect_uri validation, a 90-day TTL, and the public-client-only policy.
 func handleClientRegistration(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -352,6 +429,18 @@ func handleClientRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+
+	clientIP := clientIPFromRequest(r)
+	if !dcrRateLimiter.allow(clientIP, time.Now()) {
+		log.Printf("[DCR] Rate limit exceeded for IP %q", clientIP)
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", int(dcrRateLimitWindow.Seconds())))
+		w.WriteHeader(http.StatusTooManyRequests)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error":             "too_many_requests",
+			"error_description": "Client registration rate limit exceeded; try again later",
+		})
+		return
+	}
 
 	var req ClientRegistrationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -376,7 +465,9 @@ func handleClientRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Persist so the authorize flow can later validate redirect_uris.
+	// expires_at enables Firestore TTL cleanup of stale/scanner registrations.
 	if firestoreClient != nil {
+		now := time.Now()
 		_, err = firestoreClient.Collection(registeredClientsCollection).Doc(reg.ClientID).Set(r.Context(), map[string]any{
 			"client_id":                  reg.ClientID,
 			"client_name":                reg.ClientName,
@@ -385,7 +476,8 @@ func handleClientRegistration(w http.ResponseWriter, r *http.Request) {
 			"response_types":             reg.ResponseTypes,
 			"token_endpoint_auth_method": reg.TokenEndpointAuthMethod,
 			"scope":                      reg.Scope,
-			"created_at":                 time.Now(),
+			"created_at":                 now,
+			"expires_at":                 now.Add(dcrClientTTL),
 		})
 		if err != nil {
 			log.Printf("[DCR] Firestore write failed: %v", err)
@@ -942,10 +1034,19 @@ func handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		userUID, _ := claims["sub"].(string)
 		clientID, _ := claims["client_id"].(string)
 
-		// Re-fetch user to get latest scopes/roles
-		user, err := getUser(r.Context(), userUID)
+		// Re-fetch user to get latest scopes/roles and current token_version
+		user, err := lookupUser(r.Context(), userUID)
 		if err != nil || !user.Active {
 			oauthError(http.StatusForbidden, "invalid_grant", "User no longer authorized")
+			return
+		}
+
+		// Reject refresh tokens issued before a revocation bump so `eldamo-admin revoke`
+		// prevents silently minting a fresh access token from an older refresh token.
+		tokenVersion := extractTokenVersion(claims)
+		if tokenVersion < user.TokenVersion {
+			log.Printf("[OAuth][token] invalid_grant: refresh token revoked for user_uid=%q (token_tv=%d < user_tv=%d)", userUID, tokenVersion, user.TokenVersion)
+			oauthError(http.StatusBadRequest, "invalid_grant", "Refresh token has been revoked")
 			return
 		}
 

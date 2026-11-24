@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -365,6 +368,9 @@ func TestOAuthDiscovery(t *testing.T) {
 	if contentType != "application/json" {
 		t.Errorf("Expected Content-Type %q, got %q", "application/json", contentType)
 	}
+	if acao := w.Header().Get("Access-Control-Allow-Origin"); acao != "*" {
+		t.Errorf("handleOAuthDiscovery(GET) Access-Control-Allow-Origin = %q, want %q", acao, "*")
+	}
 
 	// Verify JSON structure and dynamic Host inclusion
 	var resp map[string]any
@@ -401,13 +407,76 @@ func TestOAuthDiscovery(t *testing.T) {
 		t.Errorf("Expected CIMD support to remain advertised alongside DCR")
 	}
 
-	// Test non-GET request
+	// Test OPTIONS CORS preflight
+	reqOpt := httptest.NewRequest(http.MethodOptions, "/.well-known/oauth-authorization-server", nil)
+	wOpt := httptest.NewRecorder()
+	handleOAuthDiscovery(wOpt, reqOpt)
+	if wOpt.Code != http.StatusNoContent {
+		t.Errorf("handleOAuthDiscovery(OPTIONS) = %d, want 204", wOpt.Code)
+	}
+	if acao := wOpt.Header().Get("Access-Control-Allow-Origin"); acao != "*" {
+		t.Errorf("handleOAuthDiscovery(OPTIONS) Access-Control-Allow-Origin = %q, want %q", acao, "*")
+	}
+
+	// Test non-GET/OPTIONS request
 	reqPost := httptest.NewRequest("POST", "/.well-known/oauth-authorization-server", nil)
 	wPost := httptest.NewRecorder()
 	handleOAuthDiscovery(wPost, reqPost)
 	if wPost.Code != http.StatusMethodNotAllowed {
 		t.Errorf("Expected POST to return 405 Method Not Allowed, got %d", wPost.Code)
 	}
+}
+
+func TestLogMCPMethod(t *testing.T) {
+	t.Run("logs method and tool name while preserving full POST body", func(t *testing.T) {
+		var logBuf bytes.Buffer
+		origWriter := log.Writer()
+		log.SetOutput(&logBuf)
+		t.Cleanup(func() { log.SetOutput(origWriter) })
+
+		payload := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"enquire_lexicon","arguments":{"query":"star"}}}`
+		var gotBody string
+		handler := logMCPMethod(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			b, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("downstream ReadAll failed: %v", err)
+			}
+			gotBody = string(b)
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		req := httptest.NewRequest(http.MethodPost, "/sse", strings.NewReader(payload))
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+
+		if gotBody != payload {
+			t.Errorf("logMCPMethod downstream body = %q, want %q", gotBody, payload)
+		}
+		if !strings.Contains(logBuf.String(), "[mcp] tools/call enquire_lexicon") {
+			t.Errorf("logMCPMethod log = %q, want substring %q", logBuf.String(), "[mcp] tools/call enquire_lexicon")
+		}
+	})
+
+	t.Run("preserves POST body larger than peek limit", func(t *testing.T) {
+		largePayload := `{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"pad":"` + strings.Repeat("a", mcpMethodPeekLimit+512) + `"}}`
+		var gotBody string
+		handler := logMCPMethod(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			b, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("downstream ReadAll failed: %v", err)
+			}
+			gotBody = string(b)
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		req := httptest.NewRequest(http.MethodPost, "/sse", strings.NewReader(largePayload))
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+
+		if gotBody != largePayload {
+			t.Errorf("logMCPMethod large body len = %d, want %d", len(gotBody), len(largePayload))
+		}
+	})
 }
 
 func TestProtectedResourceMetadata(t *testing.T) {

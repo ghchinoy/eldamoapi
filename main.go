@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -348,6 +349,46 @@ func sseLoggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// mcpMethodPeekLimit bounds how many bytes logMCPMethod buffers from a POST
+// body to extract the JSON-RPC method and optional tool name.
+const mcpMethodPeekLimit = 4096
+
+// logMCPMethod peeks at the JSON-RPC request body on POST requests to log the
+// MCP method (and tool name for tools/call) so Cloud Run logs show protocol
+// intent alongside raw HTTP lines. The full body is reconstructed via
+// io.MultiReader so downstream handlers receive the unmodified stream.
+func logMCPMethod(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.Body != nil {
+			origBody := r.Body
+			peek, err := io.ReadAll(io.LimitReader(origBody, mcpMethodPeekLimit))
+			r.Body = struct {
+				io.Reader
+				io.Closer
+			}{
+				Reader: io.MultiReader(bytes.NewReader(peek), origBody),
+				Closer: origBody,
+			}
+			if err == nil && len(peek) > 0 {
+				var rpc struct {
+					Method string `json:"method"`
+					Params struct {
+						Name string `json:"name"`
+					} `json:"params"`
+				}
+				if json.Unmarshal(peek, &rpc) == nil && rpc.Method != "" {
+					if rpc.Params.Name != "" {
+						log.Printf("[mcp] %s %s", rpc.Method, rpc.Params.Name)
+					} else {
+						log.Printf("[mcp] %s", rpc.Method)
+					}
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 
 type McpMultiplexerHandler struct {
 	sseHandler        http.Handler
@@ -404,6 +445,13 @@ func (h *McpMultiplexerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 }
 
 func handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "*")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -437,6 +485,7 @@ func handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
 		"token_endpoint_auth_methods_supported": []string{"none"},
 	}
 
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(metadata); err != nil {
@@ -738,8 +787,8 @@ func main() {
 	}
 
 	// oauthMiddleware must run first to stash claims, then gate reads them.
-	// Order: oauthMiddleware → sseLoggingMiddleware → gate(scope) → mcpHandler
-	secureHandler := oauthMiddleware(sseLoggingMiddleware(gate("lexicon:read", handler)))
+	// Order: oauthMiddleware → sseLoggingMiddleware → logMCPMethod → gate(scope) → mcpHandler
+	secureHandler := oauthMiddleware(sseLoggingMiddleware(logMCPMethod(gate("lexicon:read", handler))))
 
 	// Support simple Liveness probe
 	mux := http.NewServeMux()
